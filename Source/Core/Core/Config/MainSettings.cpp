@@ -452,7 +452,7 @@ const Info<bool> MAIN_ENABLE_DEBUGGING{{System::Main, "Interface", "DebugModeEna
 const Info<std::string> MAIN_ANALYTICS_ID{{System::Main, "Analytics", "ID"}, ""};
 const Info<bool> MAIN_ANALYTICS_ENABLED{{System::Main, "Analytics", "Enabled"}, false};
 const Info<bool> MAIN_ANALYTICS_PERMISSION_ASKED{{System::Main, "Analytics", "PermissionAsked"},
-                                                 false};
+                                                 true};
 
 // Main.GameList
 

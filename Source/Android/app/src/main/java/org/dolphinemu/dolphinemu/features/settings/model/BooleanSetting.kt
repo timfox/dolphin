@@ -169,7 +169,7 @@ enum class BooleanSetting(
         Settings.FILE_DOLPHIN,
         Settings.SECTION_ANALYTICS,
         "PermissionAsked",
-        false
+        true
     ),
     MAIN_RECURSIVE_ISO_PATHS(
         Settings.FILE_DOLPHIN,

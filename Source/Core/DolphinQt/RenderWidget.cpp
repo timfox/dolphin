@@ -47,7 +47,6 @@ RenderWidget::RenderWidget(QWidget* parent) : QWidget(parent)
   p.setColor(QPalette::Window, Qt::black);
   setPalette(p);
 
-  connect(Host::GetInstance(), &Host::RequestTitle, this, &RenderWidget::setWindowTitle);
   connect(Host::GetInstance(), &Host::RequestRenderSize, this, [this](int w, int h) {
     if (!Config::Get(Config::MAIN_RENDER_WINDOW_AUTOSIZE) || isFullScreen() || isMaximized())
       return;

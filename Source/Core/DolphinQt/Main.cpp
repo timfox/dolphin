@@ -159,9 +159,9 @@ int main(int argc, char* argv[])
   setenv("QT_QPA_PLATFORM", "xcb", replace_qt_platform);
 #endif
 
-  QCoreApplication::setOrganizationName(QStringLiteral("Dolphin Emulator"));
-  QCoreApplication::setOrganizationDomain(QStringLiteral("dolphin-emu.org"));
-  QCoreApplication::setApplicationName(QStringLiteral("dolphin-emu"));
+  QCoreApplication::setOrganizationName(QStringLiteral("GameCube"));
+  QCoreApplication::setOrganizationDomain(QStringLiteral("gamecube.local"));
+  QCoreApplication::setApplicationName(QStringLiteral("GameCube"));
 
   // QApplication will parse arguments and remove any it recognizes as targeting Qt
   QApplication app(argc, argv);
@@ -263,25 +263,7 @@ int main(int argc, char* argv[])
     MainWindow win{Core::System::GetInstance(), std::move(boot),
                    static_cast<const char*>(options.get("movie"))};
 
-#if defined(USE_ANALYTICS) && USE_ANALYTICS
-    if (!Config::Get(Config::MAIN_ANALYTICS_PERMISSION_ASKED))
-    {
-      // To ensure that the analytics prompt appears aligned with the center of the main window,
-      // the dialog is only shown after the application is ready, as only then it is guaranteed that
-      // the main window has been placed in its final position.
-      auto* const connection_context = new QObject(&win);
-      QObject::connect(qApp, &QGuiApplication::applicationStateChanged, connection_context,
-                       [connection_context, &win](const Qt::ApplicationState state) {
-                         if (state != Qt::ApplicationState::ApplicationActive)
-                           return;
-
-                         // Severe the connection after the first run.
-                         delete connection_context;
-
-                         ShowAnalyticsPrompt(&win);
-                       });
-    }
-#endif
+    ShowAnalyticsPrompt(&win);
 
     if (!Settings::Instance().IsBatchModeEnabled())
     {

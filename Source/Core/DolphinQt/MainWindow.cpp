@@ -217,7 +217,7 @@ MainWindow::MainWindow(Core::System& system, std::unique_ptr<BootParameters> boo
                        const std::string& movie_path)
     : QMainWindow(nullptr), m_system(system)
 {
-  setWindowTitle(QString::fromStdString(Common::GetScmRevStr()));
+  setWindowTitle(QStringLiteral("GameCube"));
   setWindowIcon(Resources::GetAppIcon());
   setUnifiedTitleAndToolBarOnMac(true);
   setAcceptDrops(true);
@@ -1270,11 +1270,10 @@ void MainWindow::ShowRenderWidget()
 
   if (Config::Get(Config::MAIN_RENDER_TO_MAIN))
   {
-    // If we're rendering to main, add it to the stack and update our title when necessary.
+    // If we're rendering to main, add it to the stack and keep the tool title stable.
     m_rendering_to_main = true;
 
     m_stack->setCurrentIndex(m_stack->addWidget(m_render_widget));
-    connect(Host::GetInstance(), &Host::RequestTitle, this, &MainWindow::setWindowTitle);
     m_stack->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Ignored);
     m_stack->repaint();
 
@@ -1295,13 +1294,12 @@ void MainWindow::HideRenderWidget(bool reinit, bool is_exit)
   if (m_rendering_to_main)
   {
     // Remove the widget from the stack and reparent it to nullptr, so that it can draw
-    // itself in a new window if it wants. Disconnect the title updates.
+    // itself in a new window if it wants.
     m_stack->removeWidget(m_render_widget);
     m_render_widget->setParent(nullptr);
     m_rendering_to_main = false;
     m_stack->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    disconnect(Host::GetInstance(), &Host::RequestTitle, this, &MainWindow::setWindowTitle);
-    setWindowTitle(QString::fromStdString(Common::GetScmRevStr()));
+    setWindowTitle(QStringLiteral("GameCube"));
   }
 
   // The following code works around a driver bug that would lead to Dolphin crashing when changing

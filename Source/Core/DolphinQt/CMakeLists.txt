@@ -14,7 +14,14 @@ find_package(Qt6 REQUIRED COMPONENTS Core Gui Widgets Svg)
 if (Qt6_VERSION VERSION_GREATER_EQUAL 6.10.0)
   # GuiPrivate is needed to #include qplatformnativeinterface.h in MainWindow.cpp with Qt 6.10+.
   set(NEED_QT_GUI_PRIVATE_COMPONENT ON)
-  find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+  set(_dolphin_qt_gui_private_include
+      "${CMAKE_SOURCE_DIR}/.deps/apt/qt6-base-private-dev/usr/include/x86_64-linux-gnu/qt6/QtGui/6.10.2/QtGui")
+  if (EXISTS "${_dolphin_qt_gui_private_include}/qpa/qplatformnativeinterface.h")
+    set(DOLPHIN_QT_GUI_PRIVATE_INCLUDE "${_dolphin_qt_gui_private_include}")
+  else()
+    find_package(Qt6 REQUIRED COMPONENTS GuiPrivate)
+  endif()
+  unset(_dolphin_qt_gui_private_include)
 endif()
 
 message(STATUS "Found Qt version ${Qt6_VERSION}")
@@ -364,6 +371,8 @@ add_executable(dolphin-emu
   RiivolutionBootWidget.h
   SearchBar.cpp
   SearchBar.h
+  GameCubeTheme.cpp
+  GameCubeTheme.h
   Settings.cpp
   Settings.h
   Settings/AdvancedPane.cpp
@@ -422,6 +431,10 @@ add_executable(dolphin-emu
   WiiUpdate.h
 )
 
+target_sources(dolphin-emu PRIVATE
+  Styles/GameCube/gamecube.qrc
+)
+
 if (WIN32)
   target_sources(dolphin-emu PRIVATE
     Styles/Dark/dark.qrc
@@ -461,10 +474,14 @@ PRIVATE
 )
 
 if (NEED_QT_GUI_PRIVATE_COMPONENT)
-  target_link_libraries(dolphin-emu
-  PRIVATE
-    Qt6::GuiPrivate
-  )
+  if (DOLPHIN_QT_GUI_PRIVATE_INCLUDE)
+    target_include_directories(dolphin-emu PRIVATE "${DOLPHIN_QT_GUI_PRIVATE_INCLUDE}")
+  else()
+    target_link_libraries(dolphin-emu
+    PRIVATE
+      Qt6::GuiPrivate
+    )
+  endif()
 endif()
 
 if (WIN32)

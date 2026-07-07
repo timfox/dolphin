@@ -146,6 +146,7 @@ void InterfacePane::CreateUI()
 
   auto userstyle_search_results = Common::DoFileSearch(File::GetUserPath(D_STYLES_IDX));
 
+  m_combobox_userstyle->addItem(tr("(GameCube)"), static_cast<int>(Settings::StyleType::GameCube));
   m_combobox_userstyle->addItem(tr("(System)"), static_cast<int>(Settings::StyleType::System));
 
   // TODO: Support forcing light/dark on other OSes too.
@@ -299,7 +300,7 @@ void InterfacePane::LoadUserStyle()
                         m_combobox_userstyle->findData(userstyle) :
                         m_combobox_userstyle->findData(static_cast<int>(style_type));
 
-  if (index > 0)
+  if (index >= 0)
     SignalBlocking(m_combobox_userstyle)->setCurrentIndex(index);
 }
 

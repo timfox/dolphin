@@ -1,0 +1,7 @@
+<RCC>
+	<qresource prefix="/gamecube_theme">
+		<file>gamecube.qss</file>
+		<file>dock-close-white.svg</file>
+		<file>dock-float-white.svg</file>
+	</qresource>
+</RCC>

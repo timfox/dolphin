@@ -69,9 +69,10 @@ public:
     FusionLight = 4,
     FusionDarkGray = 5,
     FusionDark = 6,
+    GameCube = 7,
 
     MinValue = 0,
-    MaxValue = 6,
+    MaxValue = 7,
   };
 
   void SetStyleType(StyleType type);

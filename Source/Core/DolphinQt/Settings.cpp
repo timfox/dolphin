@@ -36,6 +36,7 @@
 #include "Core/NetPlayServer.h"
 #include "Core/System.h"
 
+#include "DolphinQt/GameCubeTheme.h"
 #include "DolphinQt/QtUtils/QueueOnObject.h"
 
 #include "InputCommon/ControllerInterface/ControllerInterface.h"
@@ -161,7 +162,8 @@ void Settings::ApplyStyle()
 
   const bool use_fusion{style_type == StyleType::FusionLight ||
                         style_type == StyleType::FusionDarkGray ||
-                        style_type == StyleType::FusionDark};
+                        style_type == StyleType::FusionDark ||
+                        style_type == StyleType::GameCube};
   static const QString s_initial_style_name{QApplication::style()->name()};
   const QString style_name{use_fusion ? QStringLiteral("fusion") : s_initial_style_name};
   if (QApplication::style()->name() != style_name)
@@ -324,6 +326,12 @@ void Settings::ApplyStyle()
     palette.setColor(QPalette::All, QPalette::LinkVisited, QColor(110, 70, 150));
     palette.setColor(QPalette::Disabled, QPalette::LinkVisited, QColor(110, 70, 150).darker());
   }
+  else if (style_type == StyleType::GameCube)
+  {
+    GameCubeTheme::ApplyPalette(palette);
+    GameCubeTheme::ApplyFonts(qApp);
+    stylesheet_contents = GameCubeTheme::LoadStyleSheet();
+  }
 #ifdef _WIN32
   // Unlike other OSes we don't automatically get a default dark theme on Windows.
   // We manually load a dark palette for our included "(Dark)" style,
@@ -418,13 +426,16 @@ Settings::StyleType Settings::GetStyleType() const
     if (ok && type_int >= static_cast<int>(StyleType::MinValue) &&
         type_int <= static_cast<int>(StyleType::MaxValue))
     {
-      return static_cast<StyleType>(type_int);
+      const StyleType type = static_cast<StyleType>(type_int);
+      if (type == StyleType::System)
+        return StyleType::GameCube;
+      return type;
     }
   }
 
   // if the style type is unset or invalid, try the old enabled flag instead
   const bool enabled = GetQSettings().value(QStringLiteral("userstyle/enabled"), false).toBool();
-  return enabled ? StyleType::User : StyleType::System;
+  return enabled ? StyleType::User : StyleType::GameCube;
 }
 
 void Settings::SetStyleType(StyleType type)

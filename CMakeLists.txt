@@ -831,6 +831,16 @@ endif()
 ########################################
 # Process Dolphin source now that all setup is complete
 #
+if (ENABLE_QT AND LINUX)
+  set(_dolphin_qt6_svg_dir
+      "${CMAKE_SOURCE_DIR}/.deps/apt/qt6-svg-dev/usr/lib/x86_64-linux-gnu/cmake/Qt6Svg")
+  if (EXISTS "${_dolphin_qt6_svg_dir}/Qt6SvgConfig.cmake")
+    set(Qt6Svg_DIR "${_dolphin_qt6_svg_dir}" CACHE PATH "Qt6 Svg from local apt extract" FORCE)
+    list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_SOURCE_DIR}/.deps/apt/qt6-svg-dev/usr")
+  endif()
+  unset(_dolphin_qt6_svg_dir)
+endif()
+
 add_subdirectory(Source)
 
 ########################################

@@ -1902,6 +1902,12 @@ RcTcacheEntry TextureCacheBase::GetXFBTexture(u32 address, u32 width, u32 height
 
 RcTcacheEntry TextureCacheBase::GetXFBFromCache(u32 address, u32 width, u32 height, u32 stride)
 {
+  // xash3d-gc G192: when CopyDisp is RAM-only (DisableCopyToVRAM), guest CPU
+  // YUYV blits still lost DumpFrames because a prior sky XFB entry stayed
+  // cached across ViSwap. Always miss so FetchXFB re-decodes guest RAM.
+  if (g_ActiveConfig.bDisableCopyToVRAM)
+    return {};
+
   auto iter_range = m_textures_by_address.equal_range(address);
   TexAddrCache::iterator iter = iter_range.first;
 

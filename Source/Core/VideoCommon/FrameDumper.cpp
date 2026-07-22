@@ -3,9 +3,12 @@
 
 #include "VideoCommon/FrameDumper.h"
 
+#include <vector>
+
 #include "Common/Assert.h"
 #include "Common/FileUtil.h"
 #include "Common/Image.h"
+#include "Common/IOFile.h"
 
 #include "Core/Config/GraphicsSettings.h"
 #include "Core/Config/MainSettings.h"
@@ -22,6 +25,45 @@ static constexpr int VIDEO_ENCODER_LCM = 4;
 
 static bool DumpFrameToPNG(const FrameData& frame, const std::string& file_name)
 {
+  // G194 (xash3d-gc): soft textured DumpFrames at zlib≥1 took ~5 minutes/frame and
+  // starved the dump set to a single soft PNG. Uncompressed TGA finishes in ms.
+  if (Config::Get(Config::GFX_PNG_COMPRESSION_LEVEL) <= 1)
+  {
+    std::string tga_name = file_name;
+    if (tga_name.size() >= 4 && tga_name.ends_with(".png"))
+      tga_name.replace(tga_name.size() - 4, 4, ".tga");
+
+    File::IOFile file(tga_name, "wb");
+    if (!file)
+      return false;
+
+    const u32 width = frame.width;
+    const u32 height = frame.height;
+    const u8 header[18] = {
+        0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+        static_cast<u8>(width & 0xFF), static_cast<u8>((width >> 8) & 0xFF),
+        static_cast<u8>(height & 0xFF), static_cast<u8>((height >> 8) & 0xFF),
+        24, 0x20 /* top-left origin */};
+    if (!file.WriteBytes(header, sizeof(header)))
+      return false;
+
+    // TGA BGR, tightly packed. Convert RGBA → BGR row by row.
+    std::vector<u8> row(width * 3);
+    for (u32 y = 0; y < height; y++)
+    {
+      const u8* src = frame.data + static_cast<size_t>(y) * frame.stride;
+      for (u32 x = 0; x < width; x++)
+      {
+        row[x * 3 + 0] = src[x * 4 + 2];
+        row[x * 3 + 1] = src[x * 4 + 1];
+        row[x * 3 + 2] = src[x * 4 + 0];
+      }
+      if (!file.WriteBytes(row.data(), row.size()))
+        return false;
+    }
+    return true;
+  }
+
   return Common::ConvertRGBAToRGBAndSavePNG(file_name, frame.data, frame.width, frame.height,
                                             frame.stride,
                                             Config::Get(Config::GFX_PNG_COMPRESSION_LEVEL));

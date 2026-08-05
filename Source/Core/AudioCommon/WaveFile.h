@@ -31,12 +31,15 @@ public:
   WaveFileWriter& operator=(WaveFileWriter&&) = delete;
 
   bool Start(const std::string& filename, u32 sample_rate_divisor);
+  bool StartFixedRate(const std::string& filename, u32 sample_rate);
   void Stop();
 
   void SetSkipSilence(bool skip) { m_skip_silence = skip; }
   // big endian
   void AddStereoSamplesBE(const short* sample_data, u32 count, u32 sample_rate_divisor,
                           int l_volume, int r_volume);
+  void AddStereoSamplesLR(const short* sample_data, u32 count);
+  void AddStereoSamplesBEFixed(const short* sample_data, u32 count);
   u32 GetAudioSize() const { return m_audio_size; }
 
 private:

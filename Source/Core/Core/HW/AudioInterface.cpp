@@ -194,7 +194,10 @@ void AudioInterfaceManager::Init()
 {
   m_control.hex = 0;
   SetAISSampleRate(SampleRate::AI48KHz);
-  SetAIDSampleRate(SampleRate::AI32KHz);
+  // libogc's ASND_Init fixes the GameCube AI hardware to 48 kHz.  Xash's
+  // GameCube backend feeds ASND stereo PCM at that rate, so starting the DMA
+  // interface at its generic 32 kHz default inserts an avoidable resampler.
+  SetAIDSampleRate(m_system.IsWii() ? SampleRate::AI32KHz : SampleRate::AI48KHz);
   m_volume.hex = 0;
   m_sample_counter = 0;
   m_interrupt_timing = 0;
@@ -352,6 +355,10 @@ u32 AudioInterfaceManager::Get32KHzSampleRateDivisor() const
 
 u32 AudioInterfaceManager::Get48KHzSampleRateDivisor() const
 {
-  return (m_system.IsWii() ? 1125 : 1124) * 2;
+	// The GameCube port's ASND stream and Dolphin's mixer are both nominally
+	// 48 kHz. Using the historical 1124 divisor produces 48042 Hz and forces
+	// an avoidable second resample of an already-48 kHz stream. Keep Wii's
+	// hardware divisor unchanged, but make GameCube's 48 kHz path exact.
+	return m_system.IsWii() ? 1125 * 2 : Mixer::FIXED_SAMPLE_RATE_DIVIDEND / 48000;
 }
 }  // namespace AudioInterface

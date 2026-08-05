@@ -95,6 +95,41 @@ bool WaveFileWriter::Start(const std::string& filename, u32 sample_rate_divisor)
   return true;
 }
 
+bool WaveFileWriter::StartFixedRate(const std::string& filename, u32 sample_rate)
+{
+  if (sample_rate == 0)
+    return false;
+  if (File::Exists(filename))
+  {
+    if (Config::Get(Config::MAIN_DUMP_AUDIO_SILENT) ||
+        AskYesNoFmtT("Delete the existing file '{0}'?", filename))
+      File::Delete(filename);
+    else
+      return false;
+  }
+  if (m_file)
+    return false;
+  m_file.Open(filename, "wb");
+  if (!m_file)
+    return false;
+  m_audio_size = 0;
+  if (m_basename.empty())
+    SplitPath(filename, nullptr, &m_basename, nullptr);
+  m_current_sample_rate_divisor = 0;
+  Write4("RIFF");
+  Write(100 * 1000 * 1000);
+  Write4("WAVE");
+  Write4("fmt ");
+  Write(16);
+  Write(0x00020001);
+  Write(sample_rate);
+  Write(sample_rate * 2 * 2);
+  Write(0x00100004);
+  Write4("data");
+  Write(100 * 1000 * 1000 - 32);
+  return m_file.Tell() == 44;
+}
+
 void WaveFileWriter::Stop()
 {
   m_file.Seek(4, File::SeekOrigin::Begin);
@@ -104,6 +139,29 @@ void WaveFileWriter::Stop()
   Write(m_audio_size);
 
   m_file.Close();
+}
+
+void WaveFileWriter::AddStereoSamplesLR(const short* sample_data, u32 count)
+{
+  if (!m_file || !sample_data || count * 2 > BUFFER_SIZE)
+    return;
+  m_file.WriteBytes(sample_data, count * 4);
+  m_audio_size += count * 4;
+}
+
+void WaveFileWriter::AddStereoSamplesBEFixed(const short* sample_data, u32 count)
+{
+  if (!m_file || !sample_data || count * 2 > BUFFER_SIZE)
+    return;
+  for (u32 i = 0; i < count; ++i)
+  {
+    // Guest AI input is big-endian, right-left ordered. Store host WAV as
+    // little-endian left-right without resampling or gain changes.
+    m_conv_buffer[2 * i] = Common::swap16(static_cast<u16>(sample_data[2 * i + 1]));
+    m_conv_buffer[2 * i + 1] = Common::swap16(static_cast<u16>(sample_data[2 * i]));
+  }
+  m_file.WriteBytes(m_conv_buffer.data(), count * 4);
+  m_audio_size += count * 4;
 }
 
 void WaveFileWriter::Write(u32 value)

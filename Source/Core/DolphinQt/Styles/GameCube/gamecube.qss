@@ -322,6 +322,10 @@ QToolButton:pressed {
 	background: #27215f;
 	border-color: #7dffc7;
 }
+QToolButton:checked {
+	background: #3a1730;
+	border-color: #ff6b9d;
+}
 
 QTableWidget, QTableView, QTreeView, QListView, QColumnView {
 	background: #0d0b18;

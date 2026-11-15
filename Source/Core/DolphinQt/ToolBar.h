@@ -47,6 +47,7 @@ private:
   void MakeActions();
   void UpdateIcons();
   void UpdatePausePlayButtonState(bool playing_state);
+  void UpdateMuteButtonState();
 
   QAction* m_open_action;
   QAction* m_refresh_action;
@@ -54,6 +55,7 @@ private:
   QAction* m_stop_action;
   QAction* m_fullscreen_action;
   QAction* m_screenshot_action;
+  QAction* m_mute_action;
   QAction* m_config_action;
   QAction* m_controllers_action;
   QAction* m_graphics_action;

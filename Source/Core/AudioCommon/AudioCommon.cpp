@@ -270,8 +270,15 @@ void DecreaseVolume(Core::System& system, unsigned short offset)
 
 void ToggleMuteVolume(Core::System& system)
 {
-  const bool isMuted = Config::Get(Config::MAIN_AUDIO_MUTED);
-  Config::SetBaseOrCurrent(Config::MAIN_AUDIO_MUTED, !isMuted);
+  const bool muted = !Config::Get(Config::MAIN_AUDIO_MUTED);
+
+  // A mute toggle (toolbar button or hotkey) is the user's choice, so it goes to the base layer
+  // and is written to Dolphin.ini right away. That way the next launch starts in the same state,
+  // even if Dolphin is killed instead of closed. A temporary override, such as the one the
+  // throttle hotkey sets while held, is dropped so it can't hide the user's choice.
+  Config::DeleteKey(Config::LayerType::CurrentRun, Config::MAIN_AUDIO_MUTED);
+  Config::SetBase(Config::MAIN_AUDIO_MUTED, muted);
   UpdateSoundStream(system);
+  Config::Save();
 }
 }  // namespace AudioCommon

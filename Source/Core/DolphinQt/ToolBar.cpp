@@ -8,7 +8,10 @@
 
 #include <QAction>
 #include <QIcon>
+#include <QStyle>
 
+#include "AudioCommon/AudioCommon.h"
+#include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
 #include "Core/System.h"
 #include "DolphinQt/Host.h"
@@ -39,6 +42,9 @@ ToolBar::ToolBar(QWidget* parent) : QToolBar(parent)
           [this] { OnEmulationStateChanged(Core::GetState(Core::System::GetInstance())); });
 
   connect(&Settings::Instance(), &Settings::DebugModeToggled, this, &ToolBar::OnDebugModeToggled);
+
+  // Mute can also change from the hotkey, the throttle hotkey or the audio settings pane.
+  connect(&Settings::Instance(), &Settings::ConfigChanged, this, &ToolBar::UpdateMuteButtonState);
 
   connect(&Settings::Instance(), &Settings::ToolBarVisibilityChanged, this, &ToolBar::setVisible);
   connect(this, &ToolBar::visibilityChanged, &Settings::Instance(), &Settings::SetToolBarVisible);
@@ -123,6 +129,11 @@ void ToolBar::MakeActions()
   m_stop_action = addAction(tr("Stop"), this, &ToolBar::StopPressed);
   m_fullscreen_action = addAction(tr("FullScr"), this, &ToolBar::FullScreenPressed);
   m_screenshot_action = addAction(tr("ScrShot"), this, &ToolBar::ScreenShotPressed);
+  m_mute_action = addAction(tr("Mute"), this, [this] {
+    AudioCommon::ToggleMuteVolume(Core::System::GetInstance());
+    UpdateMuteButtonState();
+  });
+  m_mute_action->setCheckable(true);
 
   addSeparator();
 
@@ -134,9 +145,9 @@ void ToolBar::MakeActions()
   std::vector<QWidget*> items;
   for (const auto& action :
        {m_open_action, m_pause_play_action, m_stop_action, m_stop_action, m_fullscreen_action,
-        m_screenshot_action, m_config_action, m_graphics_action, m_controllers_action,
-        m_step_action, m_step_over_action, m_step_out_action, m_skip_action, m_show_pc_action,
-        m_set_pc_action})
+        m_screenshot_action, m_mute_action, m_config_action, m_graphics_action,
+        m_controllers_action, m_step_action, m_step_over_action, m_step_out_action, m_skip_action,
+        m_show_pc_action, m_set_pc_action})
   {
     items.emplace_back(widgetForAction(action));
   }
@@ -168,6 +179,17 @@ void ToolBar::UpdatePausePlayButtonState(const bool playing_state)
   }
 }
 
+void ToolBar::UpdateMuteButtonState()
+{
+  const bool muted = Config::Get(Config::MAIN_AUDIO_MUTED);
+  m_mute_action->setChecked(muted);
+  m_mute_action->setText(muted ? tr("Unmute") : tr("Mute"));
+  m_mute_action->setToolTip(muted ? tr("Unmute audio") : tr("Mute audio"));
+  // Dolphin's themes ship no speaker icon, so use the platform style's media-volume icons.
+  m_mute_action->setIcon(style()->standardIcon(muted ? QStyle::SP_MediaVolumeMuted :
+                                                       QStyle::SP_MediaVolume));
+}
+
 void ToolBar::UpdateIcons()
 {
   m_step_action->setIcon(Resources::GetThemeIcon("debugger_step_in"));
@@ -190,6 +212,7 @@ void ToolBar::UpdateIcons()
   m_stop_action->setIcon(Resources::GetThemeIcon("stop"));
   m_fullscreen_action->setIcon(Resources::GetThemeIcon("fullscreen"));
   m_screenshot_action->setIcon(Resources::GetThemeIcon("screenshot"));
+  UpdateMuteButtonState();
   m_config_action->setIcon(Resources::GetThemeIcon("config"));
   m_controllers_action->setIcon(Resources::GetThemeIcon("classic"));
   m_graphics_action->setIcon(Resources::GetThemeIcon("graphics"));

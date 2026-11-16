@@ -169,6 +169,8 @@ std::size_t Mixer::Mix(s16* samples, std::size_t num_samples)
   memset(samples, 0, num_samples * 2 * sizeof(s16));
 
   m_dma_mixer.Mix(samples, num_samples);
+  if (m_log_dsp_audio)
+    m_wave_writer_dma.AddStereoSamplesLR(samples, static_cast<u32>(num_samples));
   m_streaming_mixer.Mix(samples, num_samples);
   for (std::size_t i = 0; i < m_wiimote_speaker_mixers.size(); ++i)
   {
@@ -178,6 +180,9 @@ std::size_t Mixer::Mix(s16* samples, std::size_t num_samples)
   m_skylander_portal_mixer.Mix(samples, num_samples);
   for (auto& mixer : m_gba_mixers)
     mixer.Mix(samples, num_samples);
+
+  if (m_log_dsp_audio)
+    m_wave_writer_dsp.AddStereoSamplesLR(samples, static_cast<u32>(num_samples));
 
   return num_samples;
 }
@@ -219,6 +224,9 @@ void Mixer::PushSamples(const s16* samples, std::size_t num_samples)
   {
     // Big-endian RL-orderered stereo samples.
 
+    if (m_log_dsp_audio)
+      m_wave_writer_ai.AddStereoSamplesBEFixed(samples, static_cast<u32>(num_samples));
+
     const s16* ptr = samples;
     for (std::size_t i = 0; i != num_samples; ++i)
     {
@@ -227,13 +235,6 @@ void Mixer::PushSamples(const s16* samples, std::size_t num_samples)
     }
   }
 
-  if (m_log_dsp_audio)
-  {
-    const s32 sample_rate_divisor = m_dma_mixer.GetInputSampleRateDivisor();
-    auto const volume = m_dma_mixer.GetVolume();
-    m_wave_writer_dsp.AddStereoSamplesBE(samples, static_cast<u32>(num_samples),
-                                         sample_rate_divisor, volume.first, volume.second);
-  }
 }
 
 void Mixer::PushStreamingSamples(const s16* samples, std::size_t num_samples)
@@ -320,6 +321,8 @@ void Mixer::PushGBASamples(std::size_t device_number, const s16* samples, std::s
 void Mixer::SetDMAInputSampleRateDivisor(u32 rate_divisor)
 {
   m_dma_mixer.SetInputSampleRateDivisor(rate_divisor);
+  INFO_LOG_FMT(AUDIO_INTERFACE, "DMA input sample rate divisor={} rate={}", rate_divisor,
+               FIXED_SAMPLE_RATE_DIVIDEND / rate_divisor);
 }
 
 void Mixer::SetStreamInputSampleRateDivisor(u32 rate_divisor)
@@ -391,11 +394,28 @@ void Mixer::StartLogDSPAudio(const std::string& filename)
 {
   if (!m_log_dsp_audio)
   {
-    const bool success = m_wave_writer_dsp.Start(filename, m_dma_mixer.GetInputSampleRateDivisor());
+    const bool success = m_wave_writer_dsp.StartFixedRate(filename, m_output_sample_rate);
     if (success)
     {
+      const std::string dma_filename = filename + "_dma.wav";
+      if (!m_wave_writer_dma.StartFixedRate(dma_filename, m_output_sample_rate))
+      {
+        m_wave_writer_dsp.Stop();
+        NOTICE_LOG_FMT(AUDIO, "Unable to start DMA Audio logging");
+        return;
+      }
+      const std::string ai_filename = filename + "_aiinput.wav";
+      if (!m_wave_writer_ai.StartFixedRate(ai_filename, m_output_sample_rate))
+      {
+        m_wave_writer_dsp.Stop();
+        m_wave_writer_dma.Stop();
+        NOTICE_LOG_FMT(AUDIO, "Unable to start AI input Audio logging");
+        return;
+      }
       m_log_dsp_audio = true;
       m_wave_writer_dsp.SetSkipSilence(false);
+      m_wave_writer_dma.SetSkipSilence(false);
+      m_wave_writer_ai.SetSkipSilence(false);
       NOTICE_LOG_FMT(AUDIO, "Starting DSP Audio logging");
     }
     else
@@ -416,6 +436,8 @@ void Mixer::StopLogDSPAudio()
   {
     m_log_dsp_audio = false;
     m_wave_writer_dsp.Stop();
+    m_wave_writer_dma.Stop();
+    m_wave_writer_ai.Stop();
     NOTICE_LOG_FMT(AUDIO, "Stopping DSP Audio logging");
   }
   else

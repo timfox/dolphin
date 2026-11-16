@@ -190,6 +190,8 @@ private:
 
   WaveFileWriter m_wave_writer_dtk;
   WaveFileWriter m_wave_writer_dsp;
+  WaveFileWriter m_wave_writer_dma;
+  WaveFileWriter m_wave_writer_ai;
 
   bool m_log_dtk_audio = false;
   bool m_log_dsp_audio = false;

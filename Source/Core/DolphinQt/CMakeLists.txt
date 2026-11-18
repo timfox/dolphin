@@ -373,6 +373,8 @@ add_executable(dolphin-emu
   SearchBar.h
   GameCubeTheme.cpp
   GameCubeTheme.h
+  GameViewWidget.cpp
+  GameViewWidget.h
   Settings.cpp
   Settings.h
   Settings/AdvancedPane.cpp

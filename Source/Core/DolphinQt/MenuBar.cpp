@@ -124,6 +124,9 @@ void MenuBar::OnEmulationStateChanged(Core::State state)
   m_pause_action->setVisible(playing);
   m_stop_action->setEnabled(running);
   m_stop_action->setVisible(running);
+
+  // View: switching layouts moves the render widget, so only allow it while stopped.
+  m_editor_layout_action->setEnabled(!running);
   m_reset_action->setEnabled(running);
   m_fullscreen_action->setEnabled(running);
   m_screenshot_action->setEnabled(running);
@@ -509,6 +512,22 @@ void MenuBar::AddViewMenu()
   lock_widgets->setChecked(Settings::Instance().AreWidgetsLocked());
 
   connect(lock_widgets, &QAction::toggled, &Settings::Instance(), &Settings::SetWidgetsLocked);
+
+  view_menu->addSeparator();
+
+  m_editor_layout_action = view_menu->addAction(tr("&Editor Layout"));
+  m_editor_layout_action->setCheckable(true);
+  m_editor_layout_action->setChecked(Config::Get(Config::MAIN_EDITOR_LAYOUT));
+  m_editor_layout_action->setToolTip(
+      tr("Dock the game view inside the main window, surrounded by the game library and tools."));
+  connect(m_editor_layout_action, &QAction::toggled, this, [this](bool enabled) {
+    m_reset_editor_layout_action->setEnabled(enabled);
+    emit EditorLayoutToggled(enabled);
+  });
+
+  m_reset_editor_layout_action = view_menu->addAction(tr("&Reset Editor Layout"));
+  m_reset_editor_layout_action->setEnabled(Config::Get(Config::MAIN_EDITOR_LAYOUT));
+  connect(m_reset_editor_layout_action, &QAction::triggered, this, &MenuBar::ResetEditorLayout);
 
   view_menu->addSeparator();
 

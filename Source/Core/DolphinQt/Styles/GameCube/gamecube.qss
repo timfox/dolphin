@@ -370,3 +370,10 @@ QLabel {
 	color: #f8f6ff;
 	background: transparent;
 }
+
+/* Editor layout: idle Game View panel */
+QLabel#gameViewPlaceholder {
+	background: #0d0b18;
+	color: #786dd8;
+	font-size: 15px;
+}

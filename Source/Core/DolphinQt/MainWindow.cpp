@@ -9,12 +9,14 @@
 #include <QDesktopServices>
 #include <QDir>
 #include <QDragEnterEvent>
+#include <QDockWidget>
 #include <QDropEvent>
 #include <QFileInfo>
 #include <QIcon>
 #include <QMimeData>
 #include <QStackedWidget>
 #include <QStyleHints>
+#include <QTimer>
 #include <QVBoxLayout>
 #include <QWindow>
 
@@ -98,6 +100,7 @@
 #include "DolphinQt/GCMemcardManager.h"
 #include "DolphinQt/GameCount.h"
 #include "DolphinQt/GameList/GameList.h"
+#include "DolphinQt/GameViewWidget.h"
 #include "DolphinQt/Host.h"
 #include "DolphinQt/HotkeyScheduler.h"
 #include "DolphinQt/InfinityBase/InfinityBaseWindow.h"
@@ -233,8 +236,8 @@ MainWindow::MainWindow(Core::System& system, std::unique_ptr<BootParameters> boo
   ConnectMenuBar();
 
   QSettings& settings = Settings::GetQSettings();
-  restoreState(settings.value(QStringLiteral("mainwindow/state")).toByteArray());
   restoreGeometry(settings.value(QStringLiteral("mainwindow/geometry")).toByteArray());
+  RestoreLayoutState();
   if (!Settings::Instance().IsBatchModeEnabled())
   {
     show();
@@ -360,7 +363,7 @@ MainWindow::~MainWindow()
 
   if (!Settings::Instance().IsBatchModeEnabled())
   {
-    settings.setValue(QStringLiteral("mainwindow/state"), saveState());
+    SaveLayoutState();
     settings.setValue(QStringLiteral("mainwindow/geometry"), saveGeometry());
   }
 
@@ -455,6 +458,12 @@ void MainWindow::CreateComponents()
   m_game_list = new GameList(this);
   m_render_widget = new RenderWidget;
   m_stack = new QStackedWidget(this);
+  m_game_view_widget = new GameViewWidget(this);
+  m_game_library_dock = new QDockWidget(tr("Game Library"), this);
+  m_game_library_dock->setObjectName(QStringLiteral("gamelibrary"));
+  m_game_library_dock->setAllowedAreas(Qt::AllDockWidgetAreas);
+  m_game_library_dock->setFeatures(QDockWidget::DockWidgetMovable |
+                                   QDockWidget::DockWidgetFloatable);
 
   for (int i = 0; i < 4; i++)
   {
@@ -518,6 +527,10 @@ void MainWindow::CreateComponents()
 
 void MainWindow::ConnectMenuBar()
 {
+  // View
+  connect(m_menu_bar, &MenuBar::EditorLayoutToggled, this, &MainWindow::SetEditorLayoutEnabled);
+  connect(m_menu_bar, &MenuBar::ResetEditorLayout, this, &MainWindow::ResetEditorLayout);
+
   setMenuBar(m_menu_bar);
   // File
   connect(m_menu_bar, &MenuBar::Open, this, &MainWindow::Open);
@@ -771,7 +784,7 @@ void MainWindow::ConnectStack()
   setCentralWidget(m_stack);
 
   setDockOptions(DockOption::AllowNestedDocks | DockOption::AllowTabbedDocks);
-  setTabPosition(Qt::LeftDockWidgetArea | Qt::RightDockWidgetArea, QTabWidget::North);
+  setTabPosition(Qt::AllDockWidgetAreas, QTabWidget::North);
   addDockWidget(Qt::LeftDockWidgetArea, m_log_widget);
   addDockWidget(Qt::LeftDockWidgetArea, m_log_config_widget);
   addDockWidget(Qt::LeftDockWidgetArea, m_code_widget);
@@ -794,6 +807,174 @@ void MainWindow::ConnectStack()
   tabifyDockWidget(m_log_widget, m_network_widget);
   tabifyDockWidget(m_log_widget, m_jit_widget);
   tabifyDockWidget(m_log_widget, m_assembler_widget);
+
+  ApplyLayoutMode(Config::Get(Config::MAIN_EDITOR_LAYOUT));
+}
+
+void MainWindow::ApplyLayoutMode(bool editor_layout)
+{
+  m_editor_layout_active = editor_layout;
+
+  if (editor_layout)
+  {
+    // The game library moves out of the central area into its own dock panel. Qt requires a
+    // central widget, so a hidden placeholder takes its place and the docks fill the window.
+    if (centralWidget() == m_stack)
+      takeCentralWidget();
+    if (!m_editor_central_placeholder)
+      m_editor_central_placeholder = new QWidget;
+    setCentralWidget(m_editor_central_placeholder);
+    m_editor_central_placeholder->hide();
+
+    // The console runs underneath the library and game view; the inspector column on the right
+    // spans the full height. (Corners aren't part of saveState(), so set them here.)
+    setCorner(Qt::BottomLeftCorner, Qt::BottomDockWidgetArea);
+    setCorner(Qt::BottomRightCorner, Qt::RightDockWidgetArea);
+
+    m_game_library_dock->setWidget(m_stack);
+    addDockWidget(Qt::LeftDockWidgetArea, m_game_library_dock);
+    addDockWidget(Qt::LeftDockWidgetArea, m_game_view_widget);
+    m_game_library_dock->show();
+    m_game_view_widget->show();
+  }
+  else
+  {
+    removeDockWidget(m_game_view_widget);
+    removeDockWidget(m_game_library_dock);
+    m_game_library_dock->setWidget(nullptr);
+
+    if (centralWidget() == m_editor_central_placeholder)
+    {
+      takeCentralWidget();
+      m_editor_central_placeholder->deleteLater();
+      m_editor_central_placeholder = nullptr;
+    }
+    setCentralWidget(m_stack);
+    m_stack->show();
+    setCorner(Qt::BottomLeftCorner, Qt::BottomDockWidgetArea);
+    setCorner(Qt::BottomRightCorner, Qt::BottomDockWidgetArea);
+  }
+
+  setDockNestingEnabled(true);
+}
+
+void MainWindow::ResetEditorLayout()
+{
+  if (!m_editor_layout_active)
+    return;
+
+  // Arrangement modelled on the devkit concept: library on the left, the game view in the middle
+  // tabbed with the big inspection tools, inspector-style panels on the right and the console
+  // (log) along the bottom.
+  QDockWidget* const center_tabs[] = {m_memory_widget, m_code_widget, m_jit_widget,
+                                      m_assembler_widget};
+  QDockWidget* const inspector_tabs[] = {m_register_widget, m_watch_widget, m_breakpoint_widget,
+                                         m_thread_widget};
+  QDockWidget* const console_tabs[] = {m_log_widget, m_log_config_widget, m_network_widget};
+
+  for (QDockWidget* dock :
+       {static_cast<QDockWidget*>(m_game_library_dock), static_cast<QDockWidget*>(m_game_view_widget),
+        static_cast<QDockWidget*>(m_memory_widget), static_cast<QDockWidget*>(m_code_widget),
+        static_cast<QDockWidget*>(m_jit_widget), static_cast<QDockWidget*>(m_assembler_widget),
+        static_cast<QDockWidget*>(m_register_widget), static_cast<QDockWidget*>(m_watch_widget),
+        static_cast<QDockWidget*>(m_breakpoint_widget), static_cast<QDockWidget*>(m_thread_widget),
+        static_cast<QDockWidget*>(m_log_widget), static_cast<QDockWidget*>(m_log_config_widget),
+        static_cast<QDockWidget*>(m_network_widget)})
+  {
+    dock->setFloating(false);
+  }
+
+  addDockWidget(Qt::LeftDockWidgetArea, m_game_library_dock);
+  splitDockWidget(m_game_library_dock, m_game_view_widget, Qt::Horizontal);
+  for (QDockWidget* dock : center_tabs)
+    tabifyDockWidget(m_game_view_widget, dock);
+
+  addDockWidget(Qt::RightDockWidgetArea, inspector_tabs[0]);
+  for (size_t i = 1; i < std::size(inspector_tabs); ++i)
+    tabifyDockWidget(inspector_tabs[0], inspector_tabs[i]);
+
+  addDockWidget(Qt::BottomDockWidgetArea, console_tabs[0]);
+  for (size_t i = 1; i < std::size(console_tabs); ++i)
+    tabifyDockWidget(console_tabs[0], console_tabs[i]);
+
+  m_game_library_dock->show();
+  m_game_view_widget->show();
+  m_game_view_widget->raise();
+  inspector_tabs[0]->raise();
+  console_tabs[0]->raise();
+
+  // Turn on the panels the editor layout is built around. The debugger panels still only appear
+  // while debug mode is enabled.
+  Settings& settings = Settings::Instance();
+  settings.SetLogVisible(true);
+  settings.SetCodeVisible(true);
+  settings.SetMemoryVisible(true);
+  settings.SetRegistersVisible(true);
+  settings.SetWatchVisible(true);
+  settings.SetBreakpointsVisible(true);
+  settings.RefreshWidgetVisibility();
+
+  // Sizes can only be applied once the window has its real geometry.
+  QTimer::singleShot(0, this, [this] {
+    if (!m_editor_layout_active)
+      return;
+
+    const int total = width();
+    QList<QDockWidget*> columns{m_game_library_dock, m_game_view_widget};
+    QList<int> widths{total * 18 / 100, total * 60 / 100};
+    if (m_register_widget->isVisible())
+    {
+      columns.append(m_register_widget);
+      widths.append(total * 22 / 100);
+    }
+    resizeDocks(columns, widths, Qt::Horizontal);
+
+    if (m_log_widget->isVisible())
+      resizeDocks({m_log_widget}, {height() / 4}, Qt::Vertical);
+  });
+}
+
+void MainWindow::SetEditorLayoutEnabled(bool enabled)
+{
+  if (enabled == m_editor_layout_active)
+    return;
+
+  // Moving the render widget between layouts mid-emulation isn't supported; the menu action is
+  // disabled while a game is running, but guard here too.
+  if (!Core::IsUninitialized(m_system))
+    return;
+
+  SaveLayoutState();
+  Config::SetBaseOrCurrent(Config::MAIN_EDITOR_LAYOUT, enabled);
+  ApplyLayoutMode(enabled);
+  RestoreLayoutState();
+}
+
+void MainWindow::SaveLayoutState() const
+{
+  QSettings& settings = Settings::GetQSettings();
+  settings.setValue(m_editor_layout_active ? QStringLiteral("mainwindow/editorstate") :
+                                             QStringLiteral("mainwindow/state"),
+                    saveState());
+}
+
+void MainWindow::RestoreLayoutState()
+{
+  QSettings& settings = Settings::GetQSettings();
+  if (m_editor_layout_active)
+  {
+    const QByteArray state = settings.value(QStringLiteral("mainwindow/editorstate")).toByteArray();
+    if (state.isEmpty() || !restoreState(state))
+      ResetEditorLayout();
+    // A saved state can't bring back the game view/library if they were somehow lost.
+    m_game_library_dock->show();
+    m_game_view_widget->show();
+  }
+  else
+  {
+    restoreState(settings.value(QStringLiteral("mainwindow/state")).toByteArray());
+  }
+  Settings::Instance().RefreshWidgetVisibility();
 }
 
 void MainWindow::RefreshGameList()
@@ -1268,7 +1449,16 @@ void MainWindow::ShowRenderWidget()
   SetFullScreenResolution(false);
   Host::GetInstance()->SetRenderFullscreen(false);
 
-  if (Config::Get(Config::MAIN_RENDER_TO_MAIN))
+  if (m_editor_layout_active)
+  {
+    // Editor layout: the game renders inside the dockable Game View panel.
+    m_rendering_to_main = true;
+
+    m_game_view_widget->AttachRenderWidget(m_render_widget);
+
+    Host::GetInstance()->SetRenderFocus(m_game_view_widget->isActiveWindow());
+  }
+  else if (Config::Get(Config::MAIN_RENDER_TO_MAIN))
   {
     // If we're rendering to main, add it to the stack and keep the tool title stable.
     m_rendering_to_main = true;
@@ -1291,7 +1481,13 @@ void MainWindow::ShowRenderWidget()
 
 void MainWindow::HideRenderWidget(bool reinit, bool is_exit)
 {
-  if (m_rendering_to_main)
+  if (m_rendering_to_main && m_game_view_widget->HasRenderWidget())
+  {
+    m_game_view_widget->DetachRenderWidget(m_render_widget);
+    m_rendering_to_main = false;
+    setWindowTitle(QStringLiteral("GameCube"));
+  }
+  else if (m_rendering_to_main)
   {
     // Remove the widget from the stack and reparent it to nullptr, so that it can draw
     // itself in a new window if it wants.

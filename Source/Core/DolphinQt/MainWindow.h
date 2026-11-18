@@ -18,6 +18,7 @@
 #include "Core/Boot/Boot.h"
 #include "DolphinQt/FIFO/FIFOPlayerWindow.h"
 
+class QDockWidget;
 class QMenu;
 class QStackedWidget;
 class QString;
@@ -33,6 +34,7 @@ class DragEnterEvent;
 class FreeLookWindow;
 class GameCount;
 class GameList;
+class GameViewWidget;
 class GBATASInputWindow;
 class GCTASInputWindow;
 class HotkeyScheduler;
@@ -142,6 +144,13 @@ private:
   void ConnectMenuBar();
   void ConnectRenderWidget();
   void ConnectStack();
+
+  // Editor (devkit) layout: game view, game library and tools are all dock panels.
+  void ApplyLayoutMode(bool editor_layout);
+  void SetEditorLayoutEnabled(bool enabled);
+  void ResetEditorLayout();
+  void SaveLayoutState() const;
+  void RestoreLayoutState();
   void ConnectToolBar();
 
   void InitControllers();
@@ -238,6 +247,10 @@ private:
 #endif
 
   QStackedWidget* m_stack;
+  QWidget* m_editor_central_placeholder = nullptr;
+  QDockWidget* m_game_library_dock = nullptr;
+  GameViewWidget* m_game_view_widget = nullptr;
+  bool m_editor_layout_active = false;
   ToolBar* m_tool_bar;
   MenuBar* m_menu_bar;
   SearchBar* m_search_bar;

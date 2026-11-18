@@ -381,6 +381,10 @@ add_executable(dolphin-emu
   DevkitPanels.h
   DevkitStatusBar.cpp
   DevkitStatusBar.h
+  DevkitProject.cpp
+  DevkitProject.h
+  DevkitBuildPanels.cpp
+  DevkitBuildPanels.h
   Settings.cpp
   Settings.h
   Settings/AdvancedPane.cpp

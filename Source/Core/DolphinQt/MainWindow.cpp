@@ -11,6 +11,7 @@
 #include <QDragEnterEvent>
 #include <QDockWidget>
 #include <QDropEvent>
+#include <QFileDialog>
 #include <QFileInfo>
 #include <QIcon>
 #include <QMimeData>
@@ -103,7 +104,9 @@
 #include "DolphinQt/GameCount.h"
 #include "DolphinQt/GameList/GameList.h"
 #include "DolphinQt/GameViewWidget.h"
+#include "DolphinQt/DevkitBuildPanels.h"
 #include "DolphinQt/DevkitPanels.h"
+#include "DolphinQt/DevkitProject.h"
 #include "DolphinQt/DevkitStatusBar.h"
 #include "DolphinQt/IconSet.h"
 #include "DolphinQt/Host.h"
@@ -472,6 +475,12 @@ void MainWindow::CreateComponents()
   m_target_tools_widget = new TargetToolsWidget(this);
   m_property_inspector_widget = new PropertyInspectorWidget(this);
   m_devkit_status_bar = new DevkitStatusBar(this);
+  m_project = new DevkitProject(this);
+  m_builder = new DevkitBuilder(this);
+  m_project_widget = new ProjectWidget(m_project, this);
+  m_build_output_widget = new BuildOutputWidget(this);
+  m_warnings_widget = new DiagnosticsWidget(BuildDiagnostic::Severity::Warning, this);
+  m_errors_widget = new DiagnosticsWidget(BuildDiagnostic::Severity::Error, this);
 
   for (int i = 0; i < 4; i++)
   {
@@ -550,7 +559,11 @@ void MainWindow::CreateDevkitPanels()
   // Panel icons (shown in title bars and on dock tabs) from the bundled Font Awesome set.
   m_dock_icons = {
       {m_game_view_widget, "gamepad"},
-      {m_game_library_dock, "folder-tree"},
+      {m_game_library_dock, "compact-disc"},
+      {m_project_widget, "folder-tree"},
+      {m_build_output_widget, "file-lines"},
+      {m_warnings_widget, "triangle-exclamation"},
+      {m_errors_widget, "circle-xmark"},
       {m_target_tools_widget, "layer-group"},
       {m_property_inspector_widget, "table-list"},
       {m_memory_widget, "memory"},
@@ -603,6 +616,196 @@ void MainWindow::CreateDevkitPanels()
 
   connect(m_game_list, &GameList::SelectionChanged, m_property_inspector_widget,
           &PropertyInspectorWidget::SetGameFile);
+
+  // Project workflow: project tree, build output and diagnostics.
+  connect(m_project_widget, &ProjectWidget::NewProjectRequested, this, &MainWindow::NewProject);
+  connect(m_project_widget, &ProjectWidget::OpenProjectRequested, this, &MainWindow::OpenProject);
+  connect(m_project_widget, &ProjectWidget::SettingsRequested, this,
+          &MainWindow::ShowProjectSettings);
+  connect(m_project_widget, &ProjectWidget::BootRequested, this,
+          [this](const QString& path) { StartGame(path, ScanForSecondDisc::No); });
+  connect(m_project, &DevkitProject::ProjectChanged, this, &MainWindow::UpdateProjectActions);
+
+  connect(m_builder, &DevkitBuilder::OutputLine, m_build_output_widget,
+          &BuildOutputWidget::AppendLine);
+  connect(m_builder, &DevkitBuilder::DiagnosticFound, this,
+          [this](const BuildDiagnostic& diagnostic) {
+            m_warnings_widget->Add(diagnostic, m_project->GetPath());
+            m_errors_widget->Add(diagnostic, m_project->GetPath());
+          });
+  connect(m_builder, &DevkitBuilder::Finished, this,
+          [this](bool success, int warnings, int errors, qint64 elapsed_ms) {
+            const QString summary =
+                tr("%1: %2 error(s), %3 warning(s) in %4 s")
+                    .arg(success ? tr("Build succeeded") : tr("Build failed"))
+                    .arg(errors)
+                    .arg(warnings)
+                    .arg(elapsed_ms / 1000.0, 0, 'f', 1);
+            m_build_output_widget->AppendStatus(summary, success);
+            m_devkit_status_bar->showMessage(summary, 10000);
+            if (!success && errors > 0)
+            {
+              m_errors_widget->show();
+              m_errors_widget->raise();
+            }
+            const bool run = m_run_after_build && success;
+            m_run_after_build = false;
+            UpdateProjectActions();
+            if (run)
+              BootProjectOutput();
+          });
+
+  CreateProjectMenu();
+  m_project->RestoreLastProject();
+  UpdateProjectActions();
+}
+
+void MainWindow::CreateProjectMenu()
+{
+  m_project_menu = new QMenu(tr("&Project"), m_menu_bar);
+  m_project_menu->addAction(IconSet::Get("folder-plus"), tr("&New Project..."), this,
+                            &MainWindow::NewProject);
+  m_project_menu->addAction(IconSet::Get("folder-open"), tr("&Open Project Folder..."), this,
+                            &MainWindow::OpenProject);
+  m_close_project_action =
+      m_project_menu->addAction(tr("&Close Project"), m_project, &DevkitProject::Close);
+  m_project_menu->addSeparator();
+  m_build_action = m_project_menu->addAction(IconSet::Get("screwdriver-wrench"), tr("&Build"),
+                                             this, [this] { BuildProject(false); });
+  m_build_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_B));
+  m_rebuild_action = m_project_menu->addAction(IconSet::Get("arrows-rotate"), tr("&Rebuild"), this,
+                                               [this] {
+                                                 // Clean, then build.
+                                                 const QString command =
+                                                     m_project->GetCleanCommand() +
+                                                     QStringLiteral(" && ") +
+                                                     m_project->GetBuildCommand();
+                                                 RunCommandForProject(command, tr("Rebuild"),
+                                                                      false);
+                                               });
+  m_clean_action = m_project_menu->addAction(IconSet::Get("broom"), tr("C&lean"), this,
+                                             &MainWindow::CleanProject);
+  m_run_action = m_project_menu->addAction(IconSet::Get("circle-play"), tr("R&un"), this,
+                                           [this] { BuildProject(true); });
+  // F5 is a default Load State hotkey, so use Ctrl+R.
+  m_run_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
+  m_cancel_build_action = m_project_menu->addAction(IconSet::Get("stop"), tr("&Stop Build"),
+                                                    m_builder, &DevkitBuilder::Cancel);
+  m_project_menu->addSeparator();
+  m_project_settings_action = m_project_menu->addAction(
+      IconSet::Get("gear"), tr("Project &Settings..."), this, &MainWindow::ShowProjectSettings);
+
+  // Sits between File and Emulation, like an IDE's Project/Build menu.
+  const QList<QAction*> menus = m_menu_bar->actions();
+  m_menu_bar->insertMenu(menus.size() > 1 ? menus[1] : nullptr, m_project_menu);
+
+  connect(m_tool_bar, &ToolBar::BuildPressed, this, [this] { BuildProject(false); });
+  connect(m_tool_bar, &ToolBar::RunPressed, this, [this] { BuildProject(true); });
+}
+
+void MainWindow::UpdateProjectActions()
+{
+  const bool open = m_project->IsOpen();
+  const bool building = m_builder->IsRunning();
+  for (QAction* action : {m_build_action, m_rebuild_action, m_clean_action, m_run_action})
+    action->setEnabled(open && !building);
+  m_close_project_action->setEnabled(open && !building);
+  m_project_settings_action->setEnabled(open);
+  m_cancel_build_action->setEnabled(building);
+  m_tool_bar->SetProjectState(open, building);
+  m_project_menu->menuAction()->setVisible(m_editor_layout_active);
+  m_tool_bar->SetProjectActionsVisible(m_editor_layout_active);
+}
+
+void MainWindow::NewProject()
+{
+  const QString path = QFileDialog::getSaveFileName(
+      this, tr("New GameCube Project (choose a folder name)"),
+      QDir::homePath() + QStringLiteral("/my_gamecube_game"), QString(), nullptr,
+      QFileDialog::ShowDirsOnly);
+  if (path.isEmpty())
+    return;
+
+  QString error;
+  if (!m_project->CreateFromTemplate(path, &error))
+  {
+    ModalMessageBox::critical(this, tr("New Project"), error);
+    return;
+  }
+  m_project_widget->show();
+  m_project_widget->raise();
+}
+
+void MainWindow::OpenProject()
+{
+  const QString path = QFileDialog::getExistingDirectory(
+      this, tr("Open Project Folder"),
+      m_project->IsOpen() ? m_project->GetPath() : QDir::homePath());
+  if (path.isEmpty() || !m_project->Open(path))
+    return;
+  m_project_widget->show();
+  m_project_widget->raise();
+}
+
+void MainWindow::ShowProjectSettings()
+{
+  if (!m_project->IsOpen())
+    return;
+  ProjectSettingsDialog dialog(m_project, this);
+  dialog.exec();
+}
+
+void MainWindow::BuildProject(bool then_run)
+{
+  RunCommandForProject(m_project->GetBuildCommand(), tr("Build"), then_run);
+}
+
+void MainWindow::CleanProject()
+{
+  RunCommandForProject(m_project->GetCleanCommand(), tr("Clean"), false);
+}
+
+void MainWindow::RunCommandForProject(const QString& command, const QString& title,
+                                      bool then_run)
+{
+  if (!m_project->IsOpen() || m_builder->IsRunning())
+    return;
+
+  if (command.trimmed().isEmpty())
+  {
+    // No build step configured: Run just boots whatever is there.
+    if (then_run)
+      BootProjectOutput();
+    return;
+  }
+
+  m_run_after_build = then_run;
+  m_build_output_widget->Clear();
+  m_warnings_widget->Clear();
+  m_errors_widget->Clear();
+  m_build_output_widget->AppendStatus(
+      tr("%1 %2: %3").arg(title, m_project->GetName(), command), true);
+  m_build_output_widget->show();
+  m_build_output_widget->raise();
+  m_devkit_status_bar->showMessage(tr("%1 running...").arg(title));
+
+  m_builder->Run(command, m_project->GetPath());
+  UpdateProjectActions();
+}
+
+void MainWindow::BootProjectOutput()
+{
+  const QString target = m_project->ResolveRunTarget();
+  if (target.isEmpty())
+  {
+    ModalMessageBox::warning(
+        this, tr("Run"),
+        tr("No .dol or .elf was found in the project. Build the project first, or choose a run "
+           "target in Project Settings."));
+    return;
+  }
+  m_build_output_widget->AppendStatus(tr("Booting %1").arg(target), true);
+  StartGame(target, ScanForSecondDisc::No);
 }
 
 void MainWindow::ApplyDockTitleBars(bool editor_layout)
@@ -967,6 +1170,13 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     addDockWidget(Qt::LeftDockWidgetArea, m_game_view_widget);
     addDockWidget(Qt::RightDockWidgetArea, m_target_tools_widget);
     addDockWidget(Qt::RightDockWidgetArea, m_property_inspector_widget);
+    addDockWidget(Qt::LeftDockWidgetArea, m_project_widget);
+    for (QDockWidget* dock : {static_cast<QDockWidget*>(m_build_output_widget),
+                              static_cast<QDockWidget*>(m_warnings_widget),
+                              static_cast<QDockWidget*>(m_errors_widget)})
+    {
+      addDockWidget(Qt::BottomDockWidgetArea, dock);
+    }
     m_game_library_dock->show();
     m_game_view_widget->show();
 
@@ -982,6 +1192,10 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     removeDockWidget(m_game_library_dock);
     removeDockWidget(m_target_tools_widget);
     removeDockWidget(m_property_inspector_widget);
+    removeDockWidget(m_project_widget);
+    removeDockWidget(m_build_output_widget);
+    removeDockWidget(m_warnings_widget);
+    removeDockWidget(m_errors_widget);
     m_devkit_status_bar->hide();
     m_log_widget->setWindowTitle(tr("Log"));
     m_game_library_dock->setWidget(nullptr);
@@ -1000,6 +1214,8 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
 
   setDockNestingEnabled(true);
   ApplyDockTitleBars(editor_layout);
+  if (m_project_menu)
+    UpdateProjectActions();
   QueueDockTabIconRefresh();
 }
 
@@ -1017,7 +1233,9 @@ void MainWindow::ResetEditorLayout()
   // layout fits on a 1080p screen.
   QDockWidget* const inspector_tabs[] = {m_property_inspector_widget, m_thread_widget,
                                          m_network_widget, m_log_config_widget};
-  QDockWidget* const console_tabs[] = {m_log_widget, m_register_widget, m_watch_widget,
+  QDockWidget* const console_tabs[] = {m_log_widget,      m_build_output_widget,
+                                       m_warnings_widget, m_errors_widget,
+                                       m_register_widget, m_watch_widget,
                                        m_breakpoint_widget};
 
   for (QDockWidget* dock :
@@ -1029,13 +1247,18 @@ void MainWindow::ResetEditorLayout()
         static_cast<QDockWidget*>(m_log_widget), static_cast<QDockWidget*>(m_log_config_widget),
         static_cast<QDockWidget*>(m_network_widget),
         static_cast<QDockWidget*>(m_target_tools_widget),
-        static_cast<QDockWidget*>(m_property_inspector_widget)})
+        static_cast<QDockWidget*>(m_property_inspector_widget),
+        static_cast<QDockWidget*>(m_project_widget),
+        static_cast<QDockWidget*>(m_build_output_widget),
+        static_cast<QDockWidget*>(m_warnings_widget),
+        static_cast<QDockWidget*>(m_errors_widget)})
   {
     dock->setFloating(false);
   }
 
-  addDockWidget(Qt::LeftDockWidgetArea, m_game_library_dock);
-  splitDockWidget(m_game_library_dock, m_game_view_widget, Qt::Horizontal);
+  addDockWidget(Qt::LeftDockWidgetArea, m_project_widget);
+  splitDockWidget(m_project_widget, m_game_view_widget, Qt::Horizontal);
+  tabifyDockWidget(m_project_widget, m_game_library_dock);
   for (QDockWidget* dock : center_tabs)
     tabifyDockWidget(m_game_view_widget, dock);
 
@@ -1051,6 +1274,14 @@ void MainWindow::ResetEditorLayout()
     tabifyDockWidget(console_tabs[0], console_tabs[i]);
 
   m_game_library_dock->show();
+  m_project_widget->show();
+  for (QDockWidget* dock : {static_cast<QDockWidget*>(m_build_output_widget),
+                            static_cast<QDockWidget*>(m_warnings_widget),
+                            static_cast<QDockWidget*>(m_errors_widget)})
+  {
+    dock->show();
+  }
+  m_project_widget->raise();
   m_game_view_widget->show();
   m_game_view_widget->raise();
   inspector_tabs[0]->raise();
@@ -1073,7 +1304,7 @@ void MainWindow::ResetEditorLayout()
       return;
 
     const int total = width();
-    resizeDocks({m_game_library_dock, m_game_view_widget, m_target_tools_widget},
+    resizeDocks({m_project_widget, m_game_view_widget, m_target_tools_widget},
                 {total * 17 / 100, total * 61 / 100, total * 22 / 100}, Qt::Horizontal);
     resizeDocks({m_target_tools_widget, m_property_inspector_widget},
                 {height() * 52 / 100, height() * 36 / 100}, Qt::Vertical);

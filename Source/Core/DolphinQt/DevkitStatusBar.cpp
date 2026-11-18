@@ -118,7 +118,8 @@ void DevkitStatusBar::RefreshStatic()
 
     const auto& memory = system.GetMemory();
     const u32 mem1 = memory.GetRamSizeReal() / (1024 * 1024);
-    const u32 mem2 = memory.GetExRamSizeReal() / (1024 * 1024);
+    // MEM2 only exists on Wii.
+    const u32 mem2 = system.IsWii() ? memory.GetExRamSizeReal() / (1024 * 1024) : 0;
     m_mem->setText(mem2 != 0 ? tr("MEM: %1 MB + %2 MB").arg(mem1).arg(mem2) :
                                tr("MEM: %1 MB").arg(mem1));
   }

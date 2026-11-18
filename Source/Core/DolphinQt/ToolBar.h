@@ -20,8 +20,14 @@ public:
   explicit ToolBar(QWidget* parent = nullptr);
 
   void closeEvent(QCloseEvent*) override;
+
+  // Project (Build/Run) buttons are only shown in the editor layout.
+  void SetProjectActionsVisible(bool visible);
+  void SetProjectState(bool project_open, bool building);
 signals:
   void OpenPressed();
+  void BuildPressed();
+  void RunPressed();
   void RefreshPressed();
   void PlayPressed();
   void PausePressed();
@@ -52,6 +58,9 @@ private:
 
   QAction* m_open_action;
   QAction* m_refresh_action;
+  QAction* m_build_action;
+  QAction* m_run_action;
+  QAction* m_build_separator;
   QAction* m_pause_play_action;
   QAction* m_stop_action;
   QAction* m_reset_action;

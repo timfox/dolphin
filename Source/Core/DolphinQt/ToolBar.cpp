@@ -16,7 +16,7 @@
 #include "DolphinQt/IconSet.h"
 #include "DolphinQt/Settings.h"
 
-static QSize ICON_SIZE(28, 28);
+static QSize ICON_SIZE(26, 26);
 
 ToolBar::ToolBar(QWidget* parent) : QToolBar(parent)
 {
@@ -110,6 +110,12 @@ void ToolBar::MakeActions()
 
   addSeparator();
 
+  m_build_action = addAction(tr("Build"), this, &ToolBar::BuildPressed);
+  m_build_action->setToolTip(tr("Build the open project (Ctrl+B)"));
+  m_run_action = addAction(tr("Run"), this, &ToolBar::RunPressed);
+  m_run_action->setToolTip(tr("Build the open project and boot it in the Game View (Ctrl+R)"));
+  m_build_separator = addSeparator();
+
   m_pause_play_action = addAction(tr("Play"), this, &ToolBar::PlayPressed);
   m_stop_action = addAction(tr("Stop"), this, &ToolBar::StopPressed);
   m_reset_action = addAction(tr("Reset"), this, &ToolBar::ResetPressed);
@@ -154,7 +160,7 @@ void ToolBar::MakeActions()
     if (QWidget* const widget = widgetForAction(action); widget && action->isSeparator() == false &&
                                                          !action->text().isEmpty())
     {
-      widget->setMinimumWidth(64);
+      widget->setMinimumWidth(56);
     }
   }
 }
@@ -197,6 +203,8 @@ void ToolBar::UpdateIcons()
   m_set_pc_action->setIcon(IconSet::Get("location-dot"));
 
   m_open_action->setIcon(IconSet::Get("folder-open"));
+  m_build_action->setIcon(IconSet::Get("screwdriver-wrench"));
+  m_run_action->setIcon(IconSet::Get("circle-play"));
   m_refresh_action->setIcon(IconSet::Get("rotate-right"));
 
   const Core::State state = Core::GetState(Core::System::GetInstance());
@@ -211,4 +219,18 @@ void ToolBar::UpdateIcons()
   m_config_action->setIcon(IconSet::Get("gear"));
   m_controllers_action->setIcon(IconSet::Get("gamepad"));
   m_graphics_action->setIcon(IconSet::Get("display"));
+}
+
+void ToolBar::SetProjectActionsVisible(bool visible)
+{
+  m_build_action->setVisible(visible);
+  m_run_action->setVisible(visible);
+  m_build_separator->setVisible(visible);
+}
+
+void ToolBar::SetProjectState(bool project_open, bool building)
+{
+  m_build_action->setEnabled(project_open && !building);
+  m_run_action->setEnabled(project_open && !building);
+  m_build_action->setText(building ? tr("Building") : tr("Build"));
 }

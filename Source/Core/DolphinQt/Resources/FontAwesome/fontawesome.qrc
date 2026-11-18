@@ -2,20 +2,34 @@
 	<qresource prefix="/fontawesome">
 		<file>arrow-turn-down.svg</file>
 		<file>arrow-turn-up.svg</file>
+		<file>arrows-rotate.svg</file>
 		<file>bolt.svg</file>
 		<file>book.svg</file>
+		<file>box-archive.svg</file>
+		<file>broom.svg</file>
 		<file>camera.svg</file>
 		<file>circle-dot.svg</file>
+		<file>circle-play.svg</file>
+		<file>circle-xmark.svg</file>
 		<file>circle.svg</file>
 		<file>code.svg</file>
+		<file>compact-disc.svg</file>
 		<file>cube.svg</file>
 		<file>cubes.svg</file>
 		<file>display.svg</file>
 		<file>expand.svg</file>
 		<file>eye.svg</file>
+		<file>file-audio.svg</file>
+		<file>file-circle-plus.svg</file>
+		<file>file-code.svg</file>
+		<file>file-image.svg</file>
+		<file>file-lines.svg</file>
+		<file>file.svg</file>
 		<file>film.svg</file>
 		<file>folder-open.svg</file>
+		<file>folder-plus.svg</file>
 		<file>folder-tree.svg</file>
+		<file>folder.svg</file>
 		<file>forward.svg</file>
 		<file>gamepad.svg</file>
 		<file>gauge-high.svg</file>
@@ -35,11 +49,13 @@
 		<file>play.svg</file>
 		<file>rotate-left.svg</file>
 		<file>rotate-right.svg</file>
+		<file>screwdriver-wrench.svg</file>
 		<file>share.svg</file>
 		<file>sliders.svg</file>
 		<file>stop.svg</file>
 		<file>table-list.svg</file>
 		<file>terminal.svg</file>
+		<file>triangle-exclamation.svg</file>
 		<file>up-right-from-square.svg</file>
 		<file>video.svg</file>
 		<file>volume-high.svg</file>

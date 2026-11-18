@@ -4,6 +4,7 @@
 #pragma once
 
 #include <QDockWidget>
+#include <QString>
 
 class QLabel;
 class QStackedWidget;
@@ -29,5 +30,6 @@ public:
 private:
   QStackedWidget* m_stack;
   QLabel* m_placeholder;
+  QString m_placeholder_text;
   RenderWidget* m_render_widget = nullptr;
 };

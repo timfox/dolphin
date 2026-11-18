@@ -90,6 +90,10 @@ signals:
 
   void PerformOnlineUpdate(const std::string& region);
 
+  // View
+  void EditorLayoutToggled(bool enabled);
+  void ResetEditorLayout();
+
   // Tools
   void ShowMemcardManager();
   void BootGameCubeIPL(DiscIO::Region region);
@@ -208,6 +212,8 @@ private:
 
   // File
   QAction* m_open_action;
+  QAction* m_editor_layout_action;
+  QAction* m_reset_editor_layout_action;
   QAction* m_exit_action;
   QAction* m_change_disc;
   QAction* m_eject_disc;

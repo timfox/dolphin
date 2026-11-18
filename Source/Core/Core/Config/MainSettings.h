@@ -192,6 +192,8 @@ bool ShouldUseDPL2Decoder();
 extern const Info<std::string> MAIN_FULLSCREEN_DISPLAY_RES;
 extern const Info<bool> MAIN_FULLSCREEN;
 extern const Info<bool> MAIN_RENDER_TO_MAIN;
+// Devkit editor layout: the game view lives in a dockable panel surrounded by tool panels.
+extern const Info<bool> MAIN_EDITOR_LAYOUT;
 extern const Info<int> MAIN_RENDER_WINDOW_XPOS;
 extern const Info<int> MAIN_RENDER_WINDOW_YPOS;
 extern const Info<int> MAIN_RENDER_WINDOW_WIDTH;

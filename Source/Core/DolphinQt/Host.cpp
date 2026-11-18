@@ -50,6 +50,13 @@ Host::~Host()
   State::SetOnAfterLoadCallback(nullptr);
 }
 
+// True when the render widget is embedded in the main window (classic "Render to Main Window" or
+// the devkit editor layout's Game View panel) rather than being a top-level window of its own.
+static bool IsRenderingIntoMainWindow()
+{
+  return Config::Get(Config::MAIN_RENDER_TO_MAIN) || Config::Get(Config::MAIN_EDITOR_LAYOUT);
+}
+
 Host* Host::GetInstance()
 {
   static Host* s_instance = new Host();
@@ -58,7 +65,7 @@ Host* Host::GetInstance()
 
 void Host::SetRenderHandle(void* handle)
 {
-  m_render_to_main = Config::Get(Config::MAIN_RENDER_TO_MAIN);
+  m_render_to_main = IsRenderingIntoMainWindow();
 
   if (m_render_handle == handle)
     return;
@@ -122,7 +129,12 @@ bool Host::GetRenderFocus()
   // Unfortunately Qt calls SetRenderFocus() with a slight delay compared to what we actually need
   // to avoid inputs that cause a focus loss to be processed by the emulation
   if (m_render_to_main && !m_render_fullscreen)
-    return GetForegroundWindow() == (HWND)m_main_window_handle.load();
+  {
+    // The render widget's top-level window is normally the main window, but in the editor layout
+    // the Game View panel can be floated out into a window of its own.
+    const HWND root = GetAncestor(static_cast<HWND>(m_render_handle.load()), GA_ROOT);
+    return GetForegroundWindow() == (root ? root : (HWND)m_main_window_handle.load());
+  }
   return GetForegroundWindow() == (HWND)m_render_handle.load();
 #else
   return m_render_focus;
@@ -140,7 +152,7 @@ void Host::SetRenderFocus(bool focus)
   if (g_gfx && m_render_fullscreen && g_ActiveConfig.ExclusiveFullscreenEnabled())
   {
     RunWithGPUThreadInactive([focus] {
-      if (!Config::Get(Config::MAIN_RENDER_TO_MAIN))
+      if (!IsRenderingIntoMainWindow())
         g_gfx->SetFullscreen(focus);
     });
   }

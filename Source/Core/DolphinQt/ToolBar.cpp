@@ -3,22 +3,20 @@
 
 #include "DolphinQt/ToolBar.h"
 
-#include <algorithm>
-#include <vector>
-
 #include <QAction>
 #include <QIcon>
-#include <QStyle>
+#include <QSizePolicy>
 
 #include "AudioCommon/AudioCommon.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/Core.h"
 #include "Core/System.h"
+#include "DolphinQt/DevkitPanels.h"
 #include "DolphinQt/Host.h"
-#include "DolphinQt/Resources.h"
+#include "DolphinQt/IconSet.h"
 #include "DolphinQt/Settings.h"
 
-static QSize ICON_SIZE(32, 32);
+static QSize ICON_SIZE(26, 26);
 
 ToolBar::ToolBar(QWidget* parent) : QToolBar(parent)
 {
@@ -65,6 +63,7 @@ void ToolBar::OnEmulationStateChanged(Core::State state)
 {
   bool running = state != Core::State::Uninitialized;
   m_stop_action->setEnabled(running);
+  m_reset_action->setEnabled(running);
   m_fullscreen_action->setEnabled(running);
   m_screenshot_action->setEnabled(running);
 
@@ -103,6 +102,37 @@ void ToolBar::OnDebugModeToggled(bool enabled)
 
 void ToolBar::MakeActions()
 {
+  // Layout follows the devkit concept: file actions, then emulation control, then settings, then
+  // the debugger stepping controls (debug mode only), with the target status panel on the right.
+  m_open_action = addAction(tr("Open"), this, &ToolBar::OpenPressed);
+  m_refresh_action = addAction(tr("Refresh"), [this] { emit RefreshPressed(); });
+  m_refresh_action->setEnabled(false);
+
+  addSeparator();
+
+  m_build_action = addAction(tr("Build"), this, &ToolBar::BuildPressed);
+  m_build_action->setToolTip(tr("Build the open project (Ctrl+B)"));
+  m_run_action = addAction(tr("Run"), this, &ToolBar::RunPressed);
+  m_run_action->setToolTip(tr("Build the open project and boot it in the Game View (Ctrl+R)"));
+  m_build_separator = addSeparator();
+
+  m_pause_play_action = addAction(tr("Play"), this, &ToolBar::PlayPressed);
+  m_stop_action = addAction(tr("Stop"), this, &ToolBar::StopPressed);
+  m_reset_action = addAction(tr("Reset"), this, &ToolBar::ResetPressed);
+  m_fullscreen_action = addAction(tr("Fullscreen"), this, &ToolBar::FullScreenPressed);
+  m_screenshot_action = addAction(tr("Screenshot"), this, &ToolBar::ScreenShotPressed);
+  m_mute_action = addAction(tr("Mute"), this, [this] {
+    AudioCommon::ToggleMuteVolume(Core::System::GetInstance());
+    UpdateMuteButtonState();
+  });
+  m_mute_action->setCheckable(true);
+
+  addSeparator();
+
+  m_config_action = addAction(tr("Config"), this, &ToolBar::SettingsPressed);
+  m_graphics_action = addAction(tr("Graphics"), this, &ToolBar::GraphicsPressed);
+  m_controllers_action = addAction(tr("Controllers"), this, &ToolBar::ControllersPressed);
+
   // i18n: Here, "Step" is a verb. This feature is used for
   // going through code step by step.
   m_step_action = addAction(tr("Step"), this, &ToolBar::StepPressed);
@@ -118,47 +148,21 @@ void ToolBar::MakeActions()
   // i18n: Here, PC is an acronym for program counter, not personal computer.
   m_set_pc_action = addAction(tr("Set PC"), this, &ToolBar::SetPCPressed);
 
-  m_open_action = addAction(tr("Open"), this, &ToolBar::OpenPressed);
-  m_refresh_action = addAction(tr("Refresh"), [this] { emit RefreshPressed(); });
-  m_refresh_action->setEnabled(false);
+  auto* const spacer = new QWidget(this);
+  spacer->setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Preferred);
+  addWidget(spacer);
+  addWidget(new TargetStatusWidget(this));
 
-  addSeparator();
-
-  m_pause_play_action = addAction(tr("Play"), this, &ToolBar::PlayPressed);
-
-  m_stop_action = addAction(tr("Stop"), this, &ToolBar::StopPressed);
-  m_fullscreen_action = addAction(tr("FullScr"), this, &ToolBar::FullScreenPressed);
-  m_screenshot_action = addAction(tr("ScrShot"), this, &ToolBar::ScreenShotPressed);
-  m_mute_action = addAction(tr("Mute"), this, [this] {
-    AudioCommon::ToggleMuteVolume(Core::System::GetInstance());
-    UpdateMuteButtonState();
-  });
-  m_mute_action->setCheckable(true);
-
-  addSeparator();
-
-  m_config_action = addAction(tr("Config"), this, &ToolBar::SettingsPressed);
-  m_graphics_action = addAction(tr("Graphics"), this, &ToolBar::GraphicsPressed);
-  m_controllers_action = addAction(tr("Controllers"), this, &ToolBar::ControllersPressed);
-
-  // Ensure every button has about the same width
-  std::vector<QWidget*> items;
-  for (const auto& action :
-       {m_open_action, m_pause_play_action, m_stop_action, m_stop_action, m_fullscreen_action,
-        m_screenshot_action, m_mute_action, m_config_action, m_graphics_action,
-        m_controllers_action, m_step_action, m_step_over_action, m_step_out_action, m_skip_action,
-        m_show_pc_action, m_set_pc_action})
+  // Give the buttons a common minimum width so the row looks even, without padding short labels
+  // out to the width of the longest one.
+  for (QAction* const action : actions())
   {
-    items.emplace_back(widgetForAction(action));
+    if (QWidget* const widget = widgetForAction(action); widget && action->isSeparator() == false &&
+                                                         !action->text().isEmpty())
+    {
+      widget->setMinimumWidth(56);
+    }
   }
-
-  std::vector<int> widths;
-  std::ranges::transform(items, std::back_inserter(widths),
-                         [](QWidget* item) { return item->sizeHint().width(); });
-
-  const int min_width = *std::ranges::max_element(widths) * 0.85;
-  for (QWidget* widget : items)
-    widget->setMinimumWidth(min_width);
 }
 
 void ToolBar::UpdatePausePlayButtonState(const bool playing_state)
@@ -167,14 +171,14 @@ void ToolBar::UpdatePausePlayButtonState(const bool playing_state)
   {
     disconnect(m_pause_play_action, nullptr, nullptr, nullptr);
     m_pause_play_action->setText(tr("Pause"));
-    m_pause_play_action->setIcon(Resources::GetThemeIcon("pause"));
+    m_pause_play_action->setIcon(IconSet::Get("pause"));
     connect(m_pause_play_action, &QAction::triggered, this, &ToolBar::PausePressed);
   }
   else
   {
     disconnect(m_pause_play_action, nullptr, nullptr, nullptr);
     m_pause_play_action->setText(tr("Play"));
-    m_pause_play_action->setIcon(Resources::GetThemeIcon("play"));
+    m_pause_play_action->setIcon(IconSet::Get("play"));
     connect(m_pause_play_action, &QAction::triggered, this, &ToolBar::PlayPressed);
   }
 }
@@ -185,35 +189,48 @@ void ToolBar::UpdateMuteButtonState()
   m_mute_action->setChecked(muted);
   m_mute_action->setText(muted ? tr("Unmute") : tr("Mute"));
   m_mute_action->setToolTip(muted ? tr("Unmute audio") : tr("Mute audio"));
-  // Dolphin's themes ship no speaker icon, so use the platform style's media-volume icons.
-  m_mute_action->setIcon(style()->standardIcon(muted ? QStyle::SP_MediaVolumeMuted :
-                                                       QStyle::SP_MediaVolume));
+  m_mute_action->setIcon(IconSet::Get(muted ? "volume-xmark" : "volume-high"));
 }
 
 void ToolBar::UpdateIcons()
 {
-  m_step_action->setIcon(Resources::GetThemeIcon("debugger_step_in"));
-  m_step_over_action->setIcon(Resources::GetThemeIcon("debugger_step_over"));
-  m_step_out_action->setIcon(Resources::GetThemeIcon("debugger_step_out"));
-  m_skip_action->setIcon(Resources::GetThemeIcon("debugger_skip"));
-  m_show_pc_action->setIcon(Resources::GetThemeIcon("debugger_show_pc"));
-  m_set_pc_action->setIcon(Resources::GetThemeIcon("debugger_set_pc"));
+  // Font Awesome Free icons, tinted to match the active palette.
+  m_step_action->setIcon(IconSet::Get("arrow-turn-down"));
+  m_step_over_action->setIcon(IconSet::Get("share"));
+  m_step_out_action->setIcon(IconSet::Get("arrow-turn-up"));
+  m_skip_action->setIcon(IconSet::Get("forward"));
+  m_show_pc_action->setIcon(IconSet::Get("location-crosshairs"));
+  m_set_pc_action->setIcon(IconSet::Get("location-dot"));
 
-  m_open_action->setIcon(Resources::GetThemeIcon("open"));
-  m_refresh_action->setIcon(Resources::GetThemeIcon("refresh"));
+  m_open_action->setIcon(IconSet::Get("folder-open"));
+  m_build_action->setIcon(IconSet::Get("screwdriver-wrench"));
+  m_run_action->setIcon(IconSet::Get("circle-play"));
+  m_refresh_action->setIcon(IconSet::Get("rotate-right"));
 
   const Core::State state = Core::GetState(Core::System::GetInstance());
   const bool playing = state != Core::State::Uninitialized && state != Core::State::Paused;
-  if (!playing)
-    m_pause_play_action->setIcon(Resources::GetThemeIcon("play"));
-  else
-    m_pause_play_action->setIcon(Resources::GetThemeIcon("pause"));
+  m_pause_play_action->setIcon(IconSet::Get(playing ? "pause" : "play"));
 
-  m_stop_action->setIcon(Resources::GetThemeIcon("stop"));
-  m_fullscreen_action->setIcon(Resources::GetThemeIcon("fullscreen"));
-  m_screenshot_action->setIcon(Resources::GetThemeIcon("screenshot"));
+  m_stop_action->setIcon(IconSet::Get("stop"));
+  m_reset_action->setIcon(IconSet::Get("rotate-left"));
+  m_fullscreen_action->setIcon(IconSet::Get("expand"));
+  m_screenshot_action->setIcon(IconSet::Get("camera"));
   UpdateMuteButtonState();
-  m_config_action->setIcon(Resources::GetThemeIcon("config"));
-  m_controllers_action->setIcon(Resources::GetThemeIcon("classic"));
-  m_graphics_action->setIcon(Resources::GetThemeIcon("graphics"));
+  m_config_action->setIcon(IconSet::Get("gear"));
+  m_controllers_action->setIcon(IconSet::Get("gamepad"));
+  m_graphics_action->setIcon(IconSet::Get("display"));
+}
+
+void ToolBar::SetProjectActionsVisible(bool visible)
+{
+  m_build_action->setVisible(visible);
+  m_run_action->setVisible(visible);
+  m_build_separator->setVisible(visible);
+}
+
+void ToolBar::SetProjectState(bool project_open, bool building)
+{
+  m_build_action->setEnabled(project_open && !building);
+  m_run_action->setEnabled(project_open && !building);
+  m_build_action->setText(building ? tr("Building") : tr("Build"));
 }

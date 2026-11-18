@@ -14,6 +14,7 @@
 #include <QLineEdit>
 #include <QListWidget>
 #include <QPushButton>
+#include <QScrollArea>
 #include <QSplitter>
 #include <QStyleHints>
 #include <QTabWidget>
@@ -171,7 +172,14 @@ void CodeWidget::CreateWidgets()
   QWidget* right_widget = new QWidget;
   right_widget->setLayout(right_layout);
 
-  m_code_splitter->addWidget(m_box_splitter);
+  // The symbol/callstack/notes boxes stack five lists vertically; scroll them instead of forcing a
+  // tall minimum height on the whole panel (which made the editor layout taller than the screen).
+  auto* const box_scroll = new QScrollArea;
+  box_scroll->setWidget(m_box_splitter);
+  box_scroll->setWidgetResizable(true);
+  box_scroll->setFrameShape(QFrame::NoFrame);
+  box_scroll->setMinimumHeight(120);
+  m_code_splitter->addWidget(box_scroll);
   m_code_splitter->addWidget(right_widget);
 
   layout->addWidget(m_code_splitter);

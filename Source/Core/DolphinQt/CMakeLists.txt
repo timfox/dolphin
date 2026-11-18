@@ -375,6 +375,16 @@ add_executable(dolphin-emu
   GameCubeTheme.h
   GameViewWidget.cpp
   GameViewWidget.h
+  IconSet.cpp
+  IconSet.h
+  DevkitPanels.cpp
+  DevkitPanels.h
+  DevkitStatusBar.cpp
+  DevkitStatusBar.h
+  DevkitProject.cpp
+  DevkitProject.h
+  DevkitBuildPanels.cpp
+  DevkitBuildPanels.h
   Settings.cpp
   Settings.h
   Settings/AdvancedPane.cpp
@@ -435,6 +445,7 @@ add_executable(dolphin-emu
 
 target_sources(dolphin-emu PRIVATE
   Styles/GameCube/gamecube.qrc
+  Resources/FontAwesome/fontawesome.qrc
 )
 
 if (WIN32)
@@ -470,6 +481,7 @@ target_link_libraries(dolphin-emu
 PRIVATE
   core
   Qt6::Widgets
+  Qt6::Svg
   uicommon
   imgui
   implot

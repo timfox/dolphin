@@ -10,6 +10,9 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #ifdef USE_RETRO_ACHIEVEMENTS
 #include "Common/Config/Config.h"
@@ -35,6 +38,14 @@ class FreeLookWindow;
 class GameCount;
 class GameList;
 class GameViewWidget;
+class BuildOutputWidget;
+class DevkitBuilder;
+class DevkitProject;
+class DevkitStatusBar;
+class DiagnosticsWidget;
+class ProjectWidget;
+class PropertyInspectorWidget;
+class TargetToolsWidget;
 class GBATASInputWindow;
 class GCTASInputWindow;
 class HotkeyScheduler;
@@ -51,6 +62,7 @@ class NetworkWidget;
 class RegisterWidget;
 class RenderWidget;
 class SearchBar;
+class Settings;
 class SettingsWindow;
 class SkylanderPortalWindow;
 class ThreadWidget;
@@ -149,6 +161,22 @@ private:
   void ApplyLayoutMode(bool editor_layout);
   void SetEditorLayoutEnabled(bool enabled);
   void ResetEditorLayout();
+  void CreateDevkitPanels();
+  void CreateProjectMenu();
+  void UpdateProjectActions();
+  void NewProject();
+  void OpenProject();
+  void OpenProjectForExecutable(const QString& executable_path);
+  void ShowProjectSettings();
+  // Builds the open project; if |then_run|, boots the result when the build succeeds.
+  void BuildProject(bool then_run);
+  void CleanProject();
+  void RunCommandForProject(const QString& command, const QString& title, bool then_run);
+  void BootProjectOutput();
+  void ApplyDockTitleBars(bool editor_layout);
+  void QueueDockTabIconRefresh();
+  void RefreshDockTabIcons();
+  void ShowDebugPanel(QDockWidget* dock, void (Settings::*set_visible)(bool));
   void SaveLayoutState() const;
   void RestoreLayoutState();
   void ConnectToolBar();
@@ -250,6 +278,27 @@ private:
   QWidget* m_editor_central_placeholder = nullptr;
   QDockWidget* m_game_library_dock = nullptr;
   GameViewWidget* m_game_view_widget = nullptr;
+  TargetToolsWidget* m_target_tools_widget = nullptr;
+  PropertyInspectorWidget* m_property_inspector_widget = nullptr;
+  DevkitStatusBar* m_devkit_status_bar = nullptr;
+  DevkitProject* m_project = nullptr;
+  DevkitBuilder* m_builder = nullptr;
+  ProjectWidget* m_project_widget = nullptr;
+  BuildOutputWidget* m_build_output_widget = nullptr;
+  DiagnosticsWidget* m_warnings_widget = nullptr;
+  DiagnosticsWidget* m_errors_widget = nullptr;
+  QMenu* m_project_menu = nullptr;
+  QAction* m_close_project_action = nullptr;
+  QAction* m_build_action = nullptr;
+  QAction* m_rebuild_action = nullptr;
+  QAction* m_clean_action = nullptr;
+  QAction* m_run_action = nullptr;
+  QAction* m_cancel_build_action = nullptr;
+  QAction* m_project_settings_action = nullptr;
+  bool m_run_after_build = false;
+  // Every dock panel and the Font Awesome icon it shows in its title bar and tab.
+  std::vector<std::pair<QDockWidget*, std::string_view>> m_dock_icons;
+  bool m_dock_tab_icon_refresh_queued = false;
   bool m_editor_layout_active = false;
   ToolBar* m_tool_bar;
   MenuBar* m_menu_bar;

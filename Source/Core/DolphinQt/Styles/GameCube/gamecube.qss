@@ -377,3 +377,101 @@ QLabel#gameViewPlaceholder {
 	color: #786dd8;
 	font-size: 15px;
 }
+
+/* Editor layout: target status panel at the right end of the toolbar */
+QFrame#targetStatus {
+	background: qlineargradient(x1:0, y1:0, x2:0, y2:1, stop:0 #1d1736, stop:1 #120e24);
+	border: 1px solid #382d68;
+	border-radius: 10px;
+}
+QLabel#targetStatusState {
+	color: #f8f6ff;
+	font-weight: bold;
+}
+QLabel#targetStatusDetail {
+	color: #b9b0df;
+}
+
+/* Editor layout: Target Tools launcher buttons */
+QToolButton#targetToolButton {
+	background: #171229;
+	color: #f8f6ff;
+	border: 1px solid #382d68;
+	border-radius: 8px;
+	padding: 6px 12px;
+	text-align: left;
+}
+QToolButton#targetToolButton:hover {
+	background: #271f4b;
+	border-color: #5fe3ff;
+}
+QToolButton#targetToolButton:checked {
+	background: #27215f;
+	border-color: #7dffc7;
+}
+QScrollArea#targetToolsScroll, QScrollArea#targetToolsScroll > QWidget > QWidget {
+	background: transparent;
+}
+
+/* Editor layout: Property Inspector */
+QLabel#inspectorSelected {
+	color: #b9b0df;
+}
+
+/* Editor layout: status bar segments */
+QStatusBar#devkitStatusBar {
+	min-height: 28px;
+}
+QStatusBar#devkitStatusBar QWidget#statusSegment {
+	border-left: 1px solid #382d68;
+}
+QStatusBar#devkitStatusBar QLabel {
+	color: #d6d0f5;
+}
+
+/* Editor layout: custom dock title bars (icon + title + float/close) */
+QWidget#dockTitleBar {
+	background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+		stop:0 #2e2558, stop:1 #1b1535);
+	border: 1px solid #4a3f8a;
+	border-bottom: 1px solid #141026;
+	border-top-left-radius: 8px;
+	border-top-right-radius: 8px;
+}
+QLabel#dockTitleText {
+	color: #f8f6ff;
+	font-weight: bold;
+}
+QToolButton#dockTitleButton {
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 5px;
+	padding: 2px;
+}
+QToolButton#dockTitleButton:hover {
+	background: #6656bf;
+	border-color: #5fe3ff;
+}
+
+/* Editor layout: Project panel and build output */
+QWidget#projectHeader {
+	background: #171229;
+	border-bottom: 1px solid #382d68;
+}
+QLabel#projectName {
+	color: #5fe3ff;
+	font-weight: bold;
+}
+QLabel#projectHint {
+	color: #b9b0df;
+}
+QPlainTextEdit#buildOutputText {
+	background: #07060f;
+	color: #d6d0f5;
+	border: 0;
+}
+
+/* Main toolbar buttons: a little tighter so the editor's extra buttons fit */
+QToolBar#toolbar QToolButton {
+	padding: 4px 6px;
+}

@@ -1,6 +1,7 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
 <Project>
   <ItemGroup>
+    <ClCompile Include="BakeCommand.cpp" />
     <ClCompile Include="ConvertCommand.cpp" />
     <ClCompile Include="VerifyCommand.cpp" />
     <ClCompile Include="HeaderCommand.cpp" />
@@ -10,6 +11,7 @@
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="ExtractCommand.h" />
+    <ClInclude Include="BakeCommand.h" />
     <ClInclude Include="ConvertCommand.h" />
     <ClInclude Include="VerifyCommand.h" />
     <ClInclude Include="HeaderCommand.h" />

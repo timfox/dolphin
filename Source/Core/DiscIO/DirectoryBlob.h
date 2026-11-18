@@ -24,6 +24,12 @@ namespace File
 struct FSTEntry;
 }  // namespace File
 
+namespace GxBake
+{
+class AssetBaker;
+class AssetWatcher;
+}  // namespace GxBake
+
 namespace DiscIO
 {
 enum class PartitionType : u32;
@@ -237,6 +243,10 @@ private:
   u64 m_data_size = 0;
 
   std::optional<Partition> m_wrapped_partition = std::nullopt;
+
+  // GxBake: converts <root>/assets/ into files on this partition, and re-bakes while it runs.
+  std::shared_ptr<GxBake::AssetBaker> m_asset_baker;
+  std::shared_ptr<GxBake::AssetWatcher> m_asset_watcher;
 };
 
 class DirectoryBlobReader final : public BlobReader

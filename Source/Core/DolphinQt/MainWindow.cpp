@@ -16,6 +16,7 @@
 #include <QMimeData>
 #include <QStackedWidget>
 #include <QStyleHints>
+#include <QTabBar>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QWindow>
@@ -48,6 +49,7 @@
 #include "Core/BootManager.h"
 #include "Core/CommonTitles.h"
 #include "Core/Config/AchievementSettings.h"
+#include "Core/Config/GraphicsSettings.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/Config/NetplaySettings.h"
 #include "Core/Config/UISettings.h"
@@ -101,6 +103,9 @@
 #include "DolphinQt/GameCount.h"
 #include "DolphinQt/GameList/GameList.h"
 #include "DolphinQt/GameViewWidget.h"
+#include "DolphinQt/DevkitPanels.h"
+#include "DolphinQt/DevkitStatusBar.h"
+#include "DolphinQt/IconSet.h"
 #include "DolphinQt/Host.h"
 #include "DolphinQt/HotkeyScheduler.h"
 #include "DolphinQt/InfinityBase/InfinityBaseWindow.h"
@@ -464,6 +469,9 @@ void MainWindow::CreateComponents()
   m_game_library_dock->setAllowedAreas(Qt::AllDockWidgetAreas);
   m_game_library_dock->setFeatures(QDockWidget::DockWidgetMovable |
                                    QDockWidget::DockWidgetFloatable);
+  m_target_tools_widget = new TargetToolsWidget(this);
+  m_property_inspector_widget = new PropertyInspectorWidget(this);
+  m_devkit_status_bar = new DevkitStatusBar(this);
 
   for (int i = 0; i < 4; i++)
   {
@@ -523,6 +531,128 @@ void MainWindow::CreateComponents()
   });
   connect(m_breakpoint_widget, &BreakpointWidget::ShowMemory, m_memory_widget,
           &MemoryWidget::SetAddress);
+
+  CreateDevkitPanels();
+}
+
+void MainWindow::ShowDebugPanel(QDockWidget* dock, void (Settings::*set_visible)(bool))
+{
+  Settings& settings = Settings::Instance();
+  if (!settings.IsDebugModeEnabled())
+    settings.SetDebugModeEnabled(true);
+  (settings.*set_visible)(true);
+  dock->show();
+  dock->raise();
+}
+
+void MainWindow::CreateDevkitPanels()
+{
+  // Panel icons (shown in title bars and on dock tabs) from the bundled Font Awesome set.
+  m_dock_icons = {
+      {m_game_view_widget, "gamepad"},
+      {m_game_library_dock, "folder-tree"},
+      {m_target_tools_widget, "layer-group"},
+      {m_property_inspector_widget, "table-list"},
+      {m_memory_widget, "memory"},
+      {m_code_widget, "code"},
+      {m_register_widget, "microchip"},
+      {m_watch_widget, "eye"},
+      {m_breakpoint_widget, "circle-dot"},
+      {m_thread_widget, "list-ul"},
+      {m_log_widget, "terminal"},
+      {m_log_config_widget, "sliders"},
+      {m_network_widget, "network-wired"},
+      {m_jit_widget, "bolt"},
+      {m_assembler_widget, "hammer"},
+  };
+  for (const auto& [dock, icon] : m_dock_icons)
+  {
+    dock->setWindowIcon(IconSet::Get(icon));
+    connect(dock, &QDockWidget::dockLocationChanged, this, &MainWindow::QueueDockTabIconRefresh);
+    connect(dock, &QDockWidget::topLevelChanged, this, &MainWindow::QueueDockTabIconRefresh);
+    connect(dock, &QDockWidget::visibilityChanged, this, &MainWindow::QueueDockTabIconRefresh);
+  }
+
+  TargetToolsWidget* const tools = m_target_tools_widget;
+  tools->AddTool("memory", tr("Memory Viewer"), tr("Inspect and edit emulated memory."),
+                 [this] { ShowDebugPanel(m_memory_widget, &Settings::SetMemoryVisible); });
+  tools->AddTool("code", tr("Code / Symbol Map"), tr("Disassembly, symbols and call stack."),
+                 [this] { ShowDebugPanel(m_code_widget, &Settings::SetCodeVisible); });
+  tools->AddTool("microchip", tr("Registers"), tr("CPU general purpose and special registers."),
+                 [this] { ShowDebugPanel(m_register_widget, &Settings::SetRegistersVisible); });
+  tools->AddTool("circle-dot", tr("Breakpoints"), tr("Instruction and memory breakpoints."),
+                 [this] { ShowDebugPanel(m_breakpoint_widget, &Settings::SetBreakpointsVisible); });
+  tools->AddTool("eye", tr("Watch"), tr("Watch expressions on emulated memory."),
+                 [this] { ShowDebugPanel(m_watch_widget, &Settings::SetWatchVisible); });
+  tools->AddTool("bolt", tr("JIT Profiler"), tr("Recompiled code blocks and profiling data."),
+                 [this] { ShowDebugPanel(m_jit_widget, &Settings::SetJITVisible); });
+  tools->AddTool("cubes", tr("GX / FIFO Player"),
+                 tr("Record and replay graphics FIFO logs to inspect GX command streams."),
+                 [this] { ShowFIFOPlayer(); });
+  tools->AddToggle("gauge-high", tr("Performance Overlay"),
+                   tr("Show frame time and performance graphs over the game view."),
+                   Config::GFX_SHOW_GRAPHS);
+  tools->AddToggle("image", tr("Texture Dump"),
+                   tr("Dump decoded game textures to the User/Dump/Textures folder."),
+                   Config::GFX_DUMP_TEXTURES);
+  tools->AddToggle("video", tr("Frame Capture"),
+                   tr("Dump every rendered frame to the User/Dump/Frames folder."),
+                   Config::MAIN_MOVIE_DUMP_FRAMES);
+  tools->AddTool("camera", tr("Screenshot"), tr("Save a screenshot of the game view."),
+                 [this] { ScreenShot(); });
+
+  connect(m_game_list, &GameList::SelectionChanged, m_property_inspector_widget,
+          &PropertyInspectorWidget::SetGameFile);
+}
+
+void MainWindow::ApplyDockTitleBars(bool editor_layout)
+{
+  for (const auto& [dock, icon] : m_dock_icons)
+  {
+    QWidget* const old_title_bar = dock->titleBarWidget();
+    if (editor_layout && old_title_bar == nullptr)
+    {
+      dock->setTitleBarWidget(new DockTitleBar(dock, icon));
+    }
+    else if (!editor_layout && old_title_bar != nullptr)
+    {
+      dock->setTitleBarWidget(nullptr);
+      old_title_bar->deleteLater();
+    }
+  }
+}
+
+void MainWindow::QueueDockTabIconRefresh()
+{
+  // Qt rebuilds the dock tab bars lazily, so update their icons once the layout has settled.
+  if (m_dock_tab_icon_refresh_queued)
+    return;
+  m_dock_tab_icon_refresh_queued = true;
+  QTimer::singleShot(0, this, [this] {
+    m_dock_tab_icon_refresh_queued = false;
+    RefreshDockTabIcons();
+  });
+}
+
+void MainWindow::RefreshDockTabIcons()
+{
+  // QMainWindow's dock tab bars don't show dock icons on their own. Each tab stores the address of
+  // its dock widget as tab data, which lets us match tabs to docks.
+  for (QTabBar* const tab_bar : findChildren<QTabBar*>(Qt::FindDirectChildrenOnly))
+  {
+    for (int i = 0; i < tab_bar->count(); ++i)
+    {
+      const auto dock_address = tab_bar->tabData(i).value<quintptr>();
+      for (const auto& [dock, icon] : m_dock_icons)
+      {
+        if (reinterpret_cast<quintptr>(dock) == dock_address)
+        {
+          tab_bar->setTabIcon(i, dock->windowIcon());
+          break;
+        }
+      }
+    }
+  }
 }
 
 void MainWindow::ConnectMenuBar()
@@ -705,6 +835,7 @@ void MainWindow::ConnectToolBar()
   connect(m_tool_bar, &ToolBar::PlayPressed, this, [this] { Play(); });
   connect(m_tool_bar, &ToolBar::PausePressed, this, &MainWindow::Pause);
   connect(m_tool_bar, &ToolBar::StopPressed, this, &MainWindow::RequestStop);
+  connect(m_tool_bar, &ToolBar::ResetPressed, this, &MainWindow::Reset);
   connect(m_tool_bar, &ToolBar::FullScreenPressed, this, &MainWindow::FullScreen);
   connect(m_tool_bar, &ToolBar::ScreenShotPressed, this, &MainWindow::ScreenShot);
   connect(m_tool_bar, &ToolBar::SettingsPressed, this, &MainWindow::ShowSettingsWindow);
@@ -834,13 +965,25 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     m_game_library_dock->setWidget(m_stack);
     addDockWidget(Qt::LeftDockWidgetArea, m_game_library_dock);
     addDockWidget(Qt::LeftDockWidgetArea, m_game_view_widget);
+    addDockWidget(Qt::RightDockWidgetArea, m_target_tools_widget);
+    addDockWidget(Qt::RightDockWidgetArea, m_property_inspector_widget);
     m_game_library_dock->show();
     m_game_view_widget->show();
+
+    m_log_widget->setWindowTitle(tr("Console"));
+
+    if (statusBar() != m_devkit_status_bar)
+      setStatusBar(m_devkit_status_bar);
+    m_devkit_status_bar->show();
   }
   else
   {
     removeDockWidget(m_game_view_widget);
     removeDockWidget(m_game_library_dock);
+    removeDockWidget(m_target_tools_widget);
+    removeDockWidget(m_property_inspector_widget);
+    m_devkit_status_bar->hide();
+    m_log_widget->setWindowTitle(tr("Log"));
     m_game_library_dock->setWidget(nullptr);
 
     if (centralWidget() == m_editor_central_placeholder)
@@ -856,6 +999,8 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
   }
 
   setDockNestingEnabled(true);
+  ApplyDockTitleBars(editor_layout);
+  QueueDockTabIconRefresh();
 }
 
 void MainWindow::ResetEditorLayout()
@@ -864,13 +1009,16 @@ void MainWindow::ResetEditorLayout()
     return;
 
   // Arrangement modelled on the devkit concept: library on the left, the game view in the middle
-  // tabbed with the big inspection tools, inspector-style panels on the right and the console
-  // (log) along the bottom.
+  // tabbed with the big inspection tools, Target Tools and the Property Inspector on the right,
+  // and the console (log) tabbed with the CPU state panels along the bottom.
   QDockWidget* const center_tabs[] = {m_memory_widget, m_code_widget, m_jit_widget,
                                       m_assembler_widget};
-  QDockWidget* const inspector_tabs[] = {m_register_widget, m_watch_widget, m_breakpoint_widget,
-                                         m_thread_widget};
-  QDockWidget* const console_tabs[] = {m_log_widget, m_log_config_widget, m_network_widget};
+  // Tall panels (threads, network, log config) go in the full-height right column so the default
+  // layout fits on a 1080p screen.
+  QDockWidget* const inspector_tabs[] = {m_property_inspector_widget, m_thread_widget,
+                                         m_network_widget, m_log_config_widget};
+  QDockWidget* const console_tabs[] = {m_log_widget, m_register_widget, m_watch_widget,
+                                       m_breakpoint_widget};
 
   for (QDockWidget* dock :
        {static_cast<QDockWidget*>(m_game_library_dock), static_cast<QDockWidget*>(m_game_view_widget),
@@ -879,7 +1027,9 @@ void MainWindow::ResetEditorLayout()
         static_cast<QDockWidget*>(m_register_widget), static_cast<QDockWidget*>(m_watch_widget),
         static_cast<QDockWidget*>(m_breakpoint_widget), static_cast<QDockWidget*>(m_thread_widget),
         static_cast<QDockWidget*>(m_log_widget), static_cast<QDockWidget*>(m_log_config_widget),
-        static_cast<QDockWidget*>(m_network_widget)})
+        static_cast<QDockWidget*>(m_network_widget),
+        static_cast<QDockWidget*>(m_target_tools_widget),
+        static_cast<QDockWidget*>(m_property_inspector_widget)})
   {
     dock->setFloating(false);
   }
@@ -889,9 +1039,12 @@ void MainWindow::ResetEditorLayout()
   for (QDockWidget* dock : center_tabs)
     tabifyDockWidget(m_game_view_widget, dock);
 
-  addDockWidget(Qt::RightDockWidgetArea, inspector_tabs[0]);
+  addDockWidget(Qt::RightDockWidgetArea, m_target_tools_widget);
+  splitDockWidget(m_target_tools_widget, inspector_tabs[0], Qt::Vertical);
   for (size_t i = 1; i < std::size(inspector_tabs); ++i)
     tabifyDockWidget(inspector_tabs[0], inspector_tabs[i]);
+  m_target_tools_widget->show();
+  m_property_inspector_widget->show();
 
   addDockWidget(Qt::BottomDockWidgetArea, console_tabs[0]);
   for (size_t i = 1; i < std::size(console_tabs); ++i)
@@ -920,17 +1073,16 @@ void MainWindow::ResetEditorLayout()
       return;
 
     const int total = width();
-    QList<QDockWidget*> columns{m_game_library_dock, m_game_view_widget};
-    QList<int> widths{total * 18 / 100, total * 60 / 100};
-    if (m_register_widget->isVisible())
-    {
-      columns.append(m_register_widget);
-      widths.append(total * 22 / 100);
-    }
-    resizeDocks(columns, widths, Qt::Horizontal);
+    resizeDocks({m_game_library_dock, m_game_view_widget, m_target_tools_widget},
+                {total * 17 / 100, total * 61 / 100, total * 22 / 100}, Qt::Horizontal);
+    resizeDocks({m_target_tools_widget, m_property_inspector_widget},
+                {height() * 52 / 100, height() * 36 / 100}, Qt::Vertical);
 
     if (m_log_widget->isVisible())
-      resizeDocks({m_log_widget}, {height() / 4}, Qt::Vertical);
+    {
+      resizeDocks({m_game_view_widget, m_log_widget}, {height() * 62 / 100, height() * 20 / 100},
+                  Qt::Vertical);
+    }
   });
 }
 
@@ -975,6 +1127,7 @@ void MainWindow::RestoreLayoutState()
     restoreState(settings.value(QStringLiteral("mainwindow/state")).toByteArray());
   }
   Settings::Instance().RefreshWidgetVisibility();
+  QueueDockTabIconRefresh();
 }
 
 void MainWindow::RefreshGameList()

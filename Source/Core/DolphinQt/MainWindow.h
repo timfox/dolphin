@@ -10,6 +10,9 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #ifdef USE_RETRO_ACHIEVEMENTS
 #include "Common/Config/Config.h"
@@ -35,6 +38,9 @@ class FreeLookWindow;
 class GameCount;
 class GameList;
 class GameViewWidget;
+class DevkitStatusBar;
+class PropertyInspectorWidget;
+class TargetToolsWidget;
 class GBATASInputWindow;
 class GCTASInputWindow;
 class HotkeyScheduler;
@@ -51,6 +57,7 @@ class NetworkWidget;
 class RegisterWidget;
 class RenderWidget;
 class SearchBar;
+class Settings;
 class SettingsWindow;
 class SkylanderPortalWindow;
 class ThreadWidget;
@@ -149,6 +156,11 @@ private:
   void ApplyLayoutMode(bool editor_layout);
   void SetEditorLayoutEnabled(bool enabled);
   void ResetEditorLayout();
+  void CreateDevkitPanels();
+  void ApplyDockTitleBars(bool editor_layout);
+  void QueueDockTabIconRefresh();
+  void RefreshDockTabIcons();
+  void ShowDebugPanel(QDockWidget* dock, void (Settings::*set_visible)(bool));
   void SaveLayoutState() const;
   void RestoreLayoutState();
   void ConnectToolBar();
@@ -250,6 +262,12 @@ private:
   QWidget* m_editor_central_placeholder = nullptr;
   QDockWidget* m_game_library_dock = nullptr;
   GameViewWidget* m_game_view_widget = nullptr;
+  TargetToolsWidget* m_target_tools_widget = nullptr;
+  PropertyInspectorWidget* m_property_inspector_widget = nullptr;
+  DevkitStatusBar* m_devkit_status_bar = nullptr;
+  // Every dock panel and the Font Awesome icon it shows in its title bar and tab.
+  std::vector<std::pair<QDockWidget*, std::string_view>> m_dock_icons;
+  bool m_dock_tab_icon_refresh_queued = false;
   bool m_editor_layout_active = false;
   ToolBar* m_tool_bar;
   MenuBar* m_menu_bar;

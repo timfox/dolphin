@@ -1,5 +1,7 @@
 add_executable(dolphin-tool
   ToolHeadlessPlatform.cpp
+  BakeCommand.cpp
+  BakeCommand.h
   ExtractCommand.cpp
   ExtractCommand.h
   ConvertCommand.cpp

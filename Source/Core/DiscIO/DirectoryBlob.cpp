@@ -16,6 +16,7 @@
 #include "Common/Align.h"
 #include "Common/Assert.h"
 #include "Common/CommonTypes.h"
+#include "Common/Config/Config.h"
 #include "Common/DirectIOFile.h"
 #include "Common/FileUtil.h"
 #include "Common/Logging/Log.h"
@@ -27,6 +28,8 @@
 #include "DiscIO/VolumeDisc.h"
 #include "DiscIO/VolumeWii.h"
 #include "DiscIO/WiiEncryptionCache.h"
+#include "GxBake/AssetBaker.h"
+#include "GxBake/Config.h"
 
 namespace DiscIO
 {
@@ -1091,10 +1094,58 @@ static std::vector<FSTBuilderNode> ConvertFSTEntriesToBuilderNodes(const File::F
   return nodes;
 }
 
+// Adds (or replaces) a file at a '/' separated path, creating folders as needed. Names match
+// without regard to case, like the game's own FST lookups.
+static void AddHostFileNode(std::vector<FSTBuilderNode>* nodes, std::string_view disc_path,
+                            const std::string& host_path)
+{
+  const size_t slash = disc_path.find('/');
+  const std::string name(disc_path.substr(0, slash));
+  const auto it = std::ranges::find_if(*nodes, [&](const FSTBuilderNode& node) {
+    return Common::CaseInsensitiveEquals(node.m_filename, name);
+  });
+  if (slash == std::string_view::npos)
+  {
+    const u64 size = File::GetSize(host_path);
+    FSTBuilderNode node{name, size,
+                        std::vector<BuilderContentSource>{{0, size, ContentFile{host_path, 0}}}};
+    if (it != nodes->end())
+      *it = std::move(node);
+    else
+      nodes->push_back(std::move(node));
+    return;
+  }
+  FSTBuilderNode* folder;
+  if (it == nodes->end())
+  {
+    folder = &nodes->emplace_back(FSTBuilderNode{name, 0, std::vector<FSTBuilderNode>{}});
+  }
+  else
+  {
+    if (!it->IsFolder())
+      *it = FSTBuilderNode{name, 0, std::vector<FSTBuilderNode>{}};
+    folder = &*it;
+  }
+  AddHostFileNode(&folder->GetFolderContent(), disc_path.substr(slash + 1), host_path);
+}
+
 void DirectoryBlobPartition::BuildFSTFromFolder(const std::string& fst_root_path, u64 fst_address,
                                                 std::vector<u8>* disc_header)
 {
   auto nodes = ConvertFSTEntriesToBuilderNodes(File::ScanDirectoryTree(fst_root_path, true));
+
+  // A folder game can keep GxBake sources in <root>/assets/; their GameCube-native outputs are
+  // added to the disc as if they were under files/.
+  const std::string assets_dir = GxBake::AssetBaker::FindAssetsDir(m_root_directory);
+  if (!assets_dir.empty())
+  {
+    m_asset_baker = std::make_shared<GxBake::AssetBaker>(assets_dir);
+    for (const GxBake::BakedFile& file : m_asset_baker->Bake())
+      AddHostFileNode(&nodes, file.disc_path, file.host_path);
+    if (Config::Get(Config::GXBAKE_LIVE))
+      m_asset_watcher = std::make_shared<GxBake::AssetWatcher>(m_asset_baker);
+  }
+
   BuildFST(std::move(nodes), fst_address, disc_header);
 }
 

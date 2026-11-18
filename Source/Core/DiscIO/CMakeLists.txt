@@ -71,6 +71,7 @@ add_library(discio
 target_link_libraries(discio
 PUBLIC
   core
+  gxbake
   BZip2::BZip2
   LibLZMA::LibLZMA
   zstd::zstd

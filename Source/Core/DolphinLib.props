@@ -531,6 +531,13 @@
     <ClInclude Include="DiscIO\WIACompression.h" />
     <ClInclude Include="DiscIO\WiiEncryptionCache.h" />
     <ClInclude Include="DiscIO\WiiSaveBanner.h" />
+    <ClInclude Include="GxBake\AssetBaker.h" />
+    <ClInclude Include="GxBake\Cmpr.h" />
+    <ClInclude Include="GxBake\Config.h" />
+    <ClInclude Include="GxBake\Encode.h" />
+    <ClInclude Include="GxBake\Md5.h" />
+    <ClInclude Include="GxBake\Process.h" />
+    <ClInclude Include="GxBake\Resample.h" />
     <ClInclude Include="InputCommon\ControllerEmu\Control\Control.h" />
     <ClInclude Include="InputCommon\ControllerEmu\Control\Input.h" />
     <ClInclude Include="InputCommon\ControllerEmu\Control\Output.h" />
@@ -1239,6 +1246,13 @@
     <ClCompile Include="DiscIO\WIACompression.cpp" />
     <ClCompile Include="DiscIO\WiiEncryptionCache.cpp" />
     <ClCompile Include="DiscIO\WiiSaveBanner.cpp" />
+    <ClCompile Include="GxBake\AssetBaker.cpp" />
+    <ClCompile Include="GxBake\Cmpr.cpp" />
+    <ClCompile Include="GxBake\Config.cpp" />
+    <ClCompile Include="GxBake\Encode.cpp" />
+    <ClCompile Include="GxBake\Md5.cpp" />
+    <ClCompile Include="GxBake\Process.cpp" />
+    <ClCompile Include="GxBake\Resample.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\Control\Control.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\Control\Input.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\Control\Output.cpp" />

@@ -246,7 +246,9 @@ MainWindow::MainWindow(Core::System& system, std::unique_ptr<BootParameters> boo
   QSettings& settings = Settings::GetQSettings();
   restoreGeometry(settings.value(QStringLiteral("mainwindow/geometry")).toByteArray());
   RestoreLayoutState();
-  if (!Settings::Instance().IsBatchModeEnabled())
+  // Batch mode normally only shows the render window, but in the editor layout the game is drawn
+  // inside the main window, so the editor has to be shown for the game to be visible at all.
+  if (!Settings::Instance().IsBatchModeEnabled() || m_editor_layout_active)
   {
     show();
   }
@@ -743,6 +745,22 @@ void MainWindow::OpenProject()
       m_project->IsOpen() ? m_project->GetPath() : QDir::homePath());
   if (path.isEmpty() || !m_project->Open(path))
     return;
+  m_project_widget->show();
+  m_project_widget->raise();
+}
+
+void MainWindow::OpenProjectForExecutable(const QString& executable_path)
+{
+  const QString root = DevkitProject::FindProjectRoot(executable_path);
+  if (root.isEmpty())
+    return;
+
+  if (!m_project->IsOpen() ||
+      QDir(m_project->GetPath()).canonicalPath() != QDir(root).canonicalPath())
+  {
+    if (!m_project->Open(root))
+      return;
+  }
   m_project_widget->show();
   m_project_widget->raise();
 }
@@ -1777,6 +1795,15 @@ void MainWindow::StartGame(std::unique_ptr<BootParameters>&& parameters)
     // As long as the shutdown isn't complete, we can't boot, so let's boot later
     m_pending_boot = std::move(parameters);
     return;
+  }
+
+  // Testing a homebrew build: open the project it belongs to so its files, build output and
+  // diagnostics are right next to the running game.
+  if (parameters && m_editor_layout_active &&
+      std::holds_alternative<BootParameters::Executable>(parameters->parameters))
+  {
+    OpenProjectForExecutable(
+        QString::fromStdString(std::get<BootParameters::Executable>(parameters->parameters).path));
   }
 
   // We need the render widget before booting.

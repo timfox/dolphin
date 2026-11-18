@@ -166,6 +166,7 @@ private:
   void UpdateProjectActions();
   void NewProject();
   void OpenProject();
+  void OpenProjectForExecutable(const QString& executable_path);
   void ShowProjectSettings();
   // Builds the open project; if |then_run|, boots the result when the build succeeds.
   void BuildProject(bool then_run);

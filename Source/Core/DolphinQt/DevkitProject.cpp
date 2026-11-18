@@ -180,6 +180,28 @@ void DevkitProject::Close()
   emit ProjectChanged();
 }
 
+QString DevkitProject::FindProjectRoot(const QString& file)
+{
+  // Build outputs usually sit in the project root or one or two levels below it (e.g. build/).
+  constexpr int MAX_LEVELS = 4;
+
+  QDir dir = QFileInfo(file).absoluteDir();
+  QString makefile_root;
+  for (int level = 0; level < MAX_LEVELS; ++level)
+  {
+    if (dir.exists(QString::fromLatin1(SETTINGS_FILE_NAME)))
+      return dir.absolutePath();
+    if (makefile_root.isEmpty() &&
+        (dir.exists(QStringLiteral("Makefile")) || dir.exists(QStringLiteral("makefile"))))
+    {
+      makefile_root = dir.absolutePath();
+    }
+    if (!dir.cdUp())
+      break;
+  }
+  return makefile_root;
+}
+
 void DevkitProject::RestoreLastProject()
 {
   const QString last = Settings::GetQSettings().value(LAST_PROJECT_KEY).toString();

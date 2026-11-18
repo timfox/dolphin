@@ -31,6 +31,11 @@ public:
   // Re-opens the project that was open when Dolphin last exited, if it still exists.
   void RestoreLastProject();
 
+  // If |file| (e.g. a DOL/ELF being booted) lives inside a homebrew project, returns that
+  // project's root folder: the nearest parent with a .dolphin-devkit.ini, or failing that a
+  // Makefile. Empty if it doesn't look like part of a project.
+  static QString FindProjectRoot(const QString& file);
+
   // Creates a minimal devkitPPC/libogc GameCube project (Makefile + source/main.c) in |path|,
   // which must be empty or not exist yet, and opens it.
   bool CreateFromTemplate(const QString& path, QString* error);

@@ -181,6 +181,37 @@ std::vector<u8> GsWad()
   return data;
 }
 
+// A BSP v30 map that uses "brick" from its own texture lump and "odd" from test.wad.
+std::vector<u8> GsMap()
+{
+  const std::string ents = "{\n\"classname\" \"worldspawn\"\n\"wad\" \"\\\\hl\\\\valve\\\\test.wad\"\n}\n";
+  std::vector<u8> textures;
+  Put(&textures, 2);
+  const std::vector<u8> brick = GsMiptex("brick", 16, 16, 21);
+  Put(&textures, 12);
+  Put(&textures, 12 + static_cast<u32>(brick.size()));
+  Append(&textures, brick);
+  Append(&textures, GsName("ODD"));
+  for (u32 v : {24u, 20u, 0u, 0u, 0u, 0u})
+    Put(&textures, v);
+
+  std::vector<u8> data;
+  Put(&data, 30);
+  data.resize(4 + 15 * 8, 0);
+  const u32 ent_offset = static_cast<u32>(data.size());
+  data.insert(data.end(), ents.begin(), ents.end());
+  const u32 tex_offset = static_cast<u32>(data.size());
+  Append(&data, textures);
+  for (int i = 0; i < 4; i++)
+  {
+    data[4 + i] = static_cast<u8>(ent_offset >> (8 * i));
+    data[8 + i] = static_cast<u8>(ents.size() >> (8 * i));
+    data[20 + i] = static_cast<u8>(tex_offset >> (8 * i));
+    data[24 + i] = static_cast<u8>(textures.size() >> (8 * i));
+  }
+  return data;
+}
+
 std::vector<u8> GsSprite(u32 w, u32 h, u32 tex, s32 ox, s32 oy, int seed)
 {
   std::vector<u8> out = {'I', 'D', 'S', 'P'};
@@ -288,6 +319,7 @@ TEST(GxBake, BakesAndUpdatesLive)
   };
   write_bytes(assets + "valve/test.wad", GsWad());
   write_bytes(assets + "valve/sprites/cross.spr", GsSprite(64, 32, 3, -31, 15, 7));
+  write_bytes(assets + "valve/maps/e2e.bsp", GsMap());
 
   GxBake::AssetBaker baker(assets);
   auto files = baker.Bake();
@@ -301,6 +333,17 @@ TEST(GxBake, BakesAndUpdatesLive)
   ASSERT_NE(find("valve/test.wad"), files.end());
   ASSERT_NE(find("valve/media/test.gct"), files.end());
   ASSERT_NE(find("valve/sprites/cross.spr"), files.end());
+  ASSERT_NE(find("valve/maps/e2e.bsp"), files.end());
+  ASSERT_NE(find("valve/media/wt_e2e.gct"), files.end());
+  {
+    std::string wt;
+    ASSERT_TRUE(File::ReadFileToString(find("valve/media/wt_e2e.gct")->host_path, wt));
+    const auto world = GxBake::ReadGct(std::vector<u8>(wt.begin(), wt.end()));
+    ASSERT_TRUE(world.has_value());
+    ASSERT_EQ(world->size(), 2u);
+    EXPECT_EQ((*world)[0].name, "brick");
+    EXPECT_EQ((*world)[1].name, "odd");  // found in test.wad
+  }
   {
     std::string lean;
     ASSERT_TRUE(File::ReadFileToString(find("valve/sprites/cross.spr")->host_path, lean));

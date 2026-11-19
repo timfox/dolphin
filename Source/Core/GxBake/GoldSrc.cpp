@@ -10,6 +10,7 @@
 #include <fstream>
 #include <map>
 #include <set>
+#include <string_view>
 
 #include "GxBake/Cmpr.h"
 #include "GxBake/Encode.h"
@@ -302,7 +303,203 @@ std::optional<Picture> ReadPicture(const uint8_t* lump, int64_t size, int kind)
     return std::nullopt;
   return Picture{static_cast<uint32_t>(w), static_cast<uint32_t>(h), lump + p, lump + p + n + 2};
 }
+// Python's str.isspace() over latin-1 text, which is what "\\s" matches in the tool's regexes.
+bool IsSpace(uint8_t c)
+{
+  return c == ' ' || (c >= 0x09 && c <= 0x0D) || (c >= 0x1C && c <= 0x1F) || c == 0x85 ||
+         c == 0xA0;
+}
+
+// re.search(r'"<key>"\s+"([^"]+)"', text).group(1), or nullopt.
+std::optional<std::string> FindKeyValue(std::string_view text, std::string_view key)
+{
+  const std::string quoted = "\"" + std::string(key) + "\"";
+  size_t from = 0;
+  while (true)
+  {
+    const size_t at = text.find(quoted, from);
+    if (at == std::string_view::npos)
+      return std::nullopt;
+    size_t p = at + quoted.size();
+    const size_t ws = p;
+    while (p < text.size() && IsSpace(static_cast<uint8_t>(text[p])))
+      p++;
+    if (p > ws && p < text.size() && text[p] == '"')
+    {
+      const size_t end = text.find('"', p + 1);
+      if (end != std::string_view::npos && end > p + 1)
+        return std::string(text.substr(p + 1, end - p - 1));
+    }
+    from = at + 1;
+  }
+}
+
+// goldsrc.bsp_entities_text(data, limit)
+std::optional<std::string_view> EntitiesText(const std::vector<uint8_t>& d, int64_t limit)
+{
+  if (d.size() < 12)
+    return std::nullopt;
+  const int64_t off = S32(d, 4);
+  const int64_t length = std::min<int64_t>(S32(d, 8), limit);
+  if (off < 0 || length <= 0 || off >= static_cast<int64_t>(d.size()))
+    return std::string_view{};
+  const int64_t end = std::min<int64_t>(off + length, static_cast<int64_t>(d.size()));
+  return std::string_view(reinterpret_cast<const char*>(d.data()) + off,
+                          static_cast<size_t>(end - off));
+}
+
+std::string LowerLatin1(std::string s)
+{
+  for (char& ch : s)
+  {
+    uint8_t c = static_cast<uint8_t>(ch);
+    if ((c >= 'A' && c <= 'Z') || (c >= 0xC0 && c <= 0xDE && c != 0xD7))
+      ch = static_cast<char>(c + 0x20);
+  }
+  return s;
+}
+
+// goldsrc.bsp_miptex_offsets: (name, absolute offset) for each texture in the texture lump.
+std::optional<std::vector<std::pair<std::string, int64_t>>> MiptexOffsets(
+    const std::vector<uint8_t>& d)
+{
+  constexpr int TEXTURES_LUMP = 2;
+  if (d.size() < 4 + (TEXTURES_LUMP + 1) * 8)
+    return std::nullopt;
+  const int64_t off = S32(d, 4 + TEXTURES_LUMP * 8);
+  if (!Has(d, off, 4))
+    return std::nullopt;
+  const int32_t count = S32(d, off);
+  if (count < 0 || !Has(d, off + 4, static_cast<int64_t>(count) * 4))
+    return std::nullopt;
+  std::vector<std::pair<std::string, int64_t>> out;
+  for (int32_t i = 0; i < count; i++)
+  {
+    const int32_t o = S32(d, off + 4 + static_cast<int64_t>(i) * 4);
+    if (o < 0)
+      continue;
+    if (!Has(d, off + o, 16))
+      return std::nullopt;
+    out.emplace_back(LumpName(&d[off + o]), off + o);
+  }
+  return out;
+}
 }  // namespace
+
+std::optional<BspInfo> ReadBspInfo(const std::vector<uint8_t>& bsp)
+{
+  if (bsp.size() < 4 || S32(bsp, 0) != 30)
+    return std::nullopt;
+  BspInfo info;
+
+  // goldsrc.wt_bsp_wad_basenames
+  if (const auto ents = EntitiesText(bsp, 8192))
+  {
+    if (const auto value = FindKeyValue(*ents, "wad"))
+    {
+      std::set<std::string> seen;
+      size_t start = 0;
+      while (start <= value->size())
+      {
+        size_t semi = value->find(';', start);
+        if (semi == std::string::npos)
+          semi = value->size();
+        std::string part = value->substr(start, semi - start);
+        start = semi + 1;
+        // str.strip(), then backslashes to slashes.
+        const auto first = std::find_if_not(part.begin(), part.end(),
+                                            [](char c) { return IsSpace(static_cast<uint8_t>(c)); });
+        const auto last = std::find_if_not(part.rbegin(), part.rend(), [](char c) {
+                            return IsSpace(static_cast<uint8_t>(c));
+                          }).base();
+        part = first < last ? std::string(first, last) : std::string();
+        std::replace(part.begin(), part.end(), '\\', '/');
+        if (part.empty())
+          continue;
+        const std::string name = part.substr(part.rfind('/') == std::string::npos ? 0 :
+                                                                                     part.rfind('/') + 1);
+        const std::string key = LowerLatin1(name);
+        if (!key.ends_with(".wad") || !seen.insert(key).second)
+          continue;
+        info.wads.push_back(name);
+      }
+    }
+  }
+
+  // goldsrc.map_sky_name: worldspawn only (text before the first '}').
+  if (const auto ents = EntitiesText(bsp, 4096))
+  {
+    const std::string_view worldspawn = ents->substr(0, ents->find('}'));
+    if (const auto sky = FindKeyValue(worldspawn, "skyname"))
+      info.sky = LowerLatin1(*sky);
+  }
+  return info;
+}
+
+int WadIndex::Ingest(std::shared_ptr<const std::vector<uint8_t>> wad)
+{
+  const std::vector<uint8_t>& data = *wad;
+  if (data.size() < 4 ||
+      (std::memcmp(data.data(), "WAD3", 4) != 0 && std::memcmp(data.data(), "WAD2", 4) != 0))
+  {
+    return 0;
+  }
+  const auto lumps = WadDirectory(data);
+  if (!lumps)
+    return 0;
+  int added = 0;
+  for (const WadLump& l : *lumps)
+  {
+    if (l.kind != 0x43 || l.compressed)
+      continue;
+    if (m_lumps.emplace(l.name, Lump{wad, l.offset}).second)
+      added++;
+  }
+  return added;
+}
+
+const WadIndex::Lump* WadIndex::Find(const std::string& name) const
+{
+  const auto it = m_lumps.find(name);
+  return it == m_lumps.end() ? nullptr : &it->second;
+}
+
+std::optional<std::vector<uint8_t>> BuildWorldTexturePack(const std::vector<uint8_t>& bsp,
+                                                          const WadIndex& wads,
+                                                          const std::string& cache_dir,
+                                                          std::vector<std::string>* missing)
+{
+  const auto names = MiptexOffsets(bsp);
+  if (!names)
+    return std::nullopt;
+
+  std::set<std::string> seen;
+  std::vector<GctEntry> entries;
+  for (const auto& [name, offset] : *names)
+  {
+    // goldsrc.is_world_diffuse: liquids ('!', '*') and sky keep the engine's own path.
+    if (name.empty() || name[0] == '!' || name[0] == '*' || name.starts_with("sky"))
+      continue;
+    if (!seen.insert(name).second)
+      continue;
+    auto mip = ReadMiptex(bsp, offset);
+    if (!mip)
+    {
+      if (const WadIndex::Lump* lump = wads.Find(name))
+        mip = ReadMiptex(*lump->wad, lump->offset);
+    }
+    if (!mip)
+    {
+      missing->push_back(name);
+      continue;
+    }
+    entries.push_back(MakeEntry(name, mip->width, mip->height, mip->pixels, mip->palette,
+                                name.starts_with("{"), cache_dir));
+  }
+  if (entries.empty())
+    return std::vector<uint8_t>{};
+  return WriteGct(entries);
+}
 
 std::optional<std::vector<uint8_t>> LeanHlSprite(const std::vector<uint8_t>& d, int scale)
 {

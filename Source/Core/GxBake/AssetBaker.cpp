@@ -5,8 +5,10 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -174,6 +176,127 @@ bool WriteFileAtomic(const std::string& path, const std::vector<u8>& data)
   const bool ok = File::Copy(tmp, path, true);
   File::Delete(tmp, File::IfAbsentBehavior::NoConsoleWarning);
   return ok;
+}
+
+// --- GoldSrc maps: the WADs and sky a map reads (gct.collect_wads, project._bsp_sky) -----------
+
+// A map's gamedir: the folder above maps/, or the map's own folder.
+fs::path MapGamedir(const fs::path& bsp)
+{
+  const fs::path parent = bsp.parent_path();
+  return Lower(PathToString(parent.filename())) == "maps" ? parent.parent_path() : parent;
+}
+
+// gct.wad_search_roots: the gamedir, its dod/valve siblings and the disc builder's env vars.
+std::vector<fs::path> WadSearchRoots(const fs::path& gamedir)
+{
+  std::vector<fs::path> roots;
+  std::set<fs::path> seen;
+  const auto add = [&](const fs::path& path) {
+    std::error_code ec;
+    const fs::path resolved = fs::weakly_canonical(path, ec);
+    if (ec || !fs::is_directory(resolved, ec) || !seen.insert(resolved).second)
+      return;
+    roots.push_back(resolved);
+  };
+  add(gamedir);
+  for (const fs::path& name : {gamedir.filename(), fs::path("dod"), fs::path("valve")})
+    add(gamedir.parent_path() / name);
+  for (const char* env : {"DODGC_FULL_DOD", "DODGC_WT_WAD_ROOT", "HL_VALVE_DIR"})
+  {
+    const char* raw = std::getenv(env);
+    std::string value = raw ? raw : "";
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())))
+      value.pop_back();
+    while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())))
+      value.erase(value.begin());
+    if (!value.empty())
+      add(StringToPath(value));
+  }
+  return roots;
+}
+
+// sorted(dir.glob("*.wad"))
+std::vector<fs::path> WadsIn(const fs::path& dir)
+{
+  std::vector<fs::path> wads;
+  std::error_code ec;
+  for (auto it = fs::directory_iterator(dir, ec); !ec && it != fs::directory_iterator();
+       it.increment(ec))
+  {
+    std::string name = PathToString(it->path().filename());
+#ifdef _WIN32
+    name = Lower(name);
+#endif
+    if (name.ends_with(".wad") && it->is_regular_file(ec))
+      wads.push_back(it->path());
+  }
+  std::ranges::sort(wads, {}, [](const fs::path& p) { return PathToString(p); });
+  return wads;
+}
+
+std::string FileFingerprint(const fs::path& path)
+{
+  std::error_code ec;
+  const auto size = fs::file_size(path, ec);
+  const auto time = fs::last_write_time(path, ec);
+  return fmt::format("{}={}:{};", PathToString(path), size,
+                     std::chrono::duration_cast<std::chrono::nanoseconds>(time.time_since_epoch())
+                         .count());
+}
+
+// Everything a map's outputs depend on besides the map: every WAD it could read and its sky.
+std::string MapDependencies(const fs::path& bsp)
+{
+  const fs::path gamedir = MapGamedir(bsp);
+  std::string fp;
+  for (const fs::path& root : WadSearchRoots(gamedir))
+  {
+    for (const fs::path& wad : WadsIn(root))
+      fp += FileFingerprint(wad);
+  }
+  std::error_code ec;
+  for (auto it = fs::directory_iterator(gamedir / "gfx" / "env", ec);
+       !ec && it != fs::directory_iterator(); it.increment(ec))
+  {
+    fp += FileFingerprint(it->path());
+  }
+  return fp;
+}
+
+// gct.collect_wads: every WAD in the gamedir, then the map's own WADs (plus the stock ones and
+// dod_*.wad) from the search roots, first WAD of a name wins.
+WadIndex CollectWads(const BspInfo& info, const fs::path& gamedir, std::vector<std::string>* loaded)
+{
+  WadIndex index;
+  std::set<std::string> have;
+  const auto ingest = [&](const fs::path& wad) {
+    auto data = ReadFile(PathToString(wad));
+    if (!data || index.Ingest(std::make_shared<const std::vector<u8>>(std::move(*data))) == 0)
+      return false;
+    loaded->push_back(PathToString(wad));
+    return true;
+  };
+  for (const fs::path& wad : WadsIn(gamedir))
+  {
+    if (ingest(wad))
+      have.insert(Lower(PathToString(wad.filename())));
+  }
+  std::set<std::string> wanted = {"halflife.wad", "hlbasics.wad", "decals.wad"};
+  for (const std::string& w : info.wads)
+    wanted.insert(Lower(w));
+  for (const fs::path& root : WadSearchRoots(gamedir))
+  {
+    for (const fs::path& wad : WadsIn(root))
+    {
+      const std::string key = Lower(PathToString(wad.filename()));
+      if (have.contains(key) || (!wanted.contains(key) && !key.starts_with("dod_")))
+        continue;
+      if (ingest(wad))
+        have.insert(key);
+    }
+  }
+  return index;
 }
 
 std::optional<RgbaImage> LoadNativeImage(const std::string& ext, const std::vector<u8>& data)
@@ -534,10 +657,10 @@ struct AssetBaker::Impl
       {
         s.kind = Kind::Python;
       }
-      else if (s.ext == ".spr" || s.ext == ".wad")
+      else if (s.ext == ".spr" || s.ext == ".wad" || s.ext == ".bsp")
       {
-        // Half-Life sprites and WAD3 files bake natively; Quake ones turn out to need the
-        // Python tool once their header is read.
+        // Half-Life sprites, WAD3 files and BSP v30 maps bake natively; Quake and Source ones
+        // turn out to need the Python tool once their header is read.
         s.kind = Kind::NativeGoldSrc;
       }
       else if (GOLDSRC_EXTS.contains(s.ext))
@@ -712,17 +835,18 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
     }
   }
 
-  // --- GoldSrc sprites and WADs ---------------------------------------------------------------
+  // --- GoldSrc sprites, WADs and maps --------------------------------------------------------
   for (Source& s : sources)
   {
     if (s.kind != Kind::NativeGoldSrc)
       continue;
-    const bool sprite = s.ext == ".spr";
     const std::string key = "goldsrc:" + s.rel;
-    const std::string out_rel =
-        Join(s.gamedir, sprite ? "sprites/" + s.stem + ".spr" : "media/" + s.stem + ".gct");
+    const bool map = s.ext == ".bsp";
+    const std::string fp =
+        map ? Md5Hex(s.Fingerprint() + ";" + MapDependencies(StringToPath(s.host))) :
+              s.Fingerprint();
     const auto it = state.find(key);
-    if (it != state.end() && it->second.fingerprint == s.Fingerprint() &&
+    if (it != state.end() && it->second.fingerprint == fp &&
         std::ranges::all_of(it->second.outputs,
                             [&](const std::string& o) { return File::IsFile(OutPath(o)); }))
     {
@@ -732,43 +856,109 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
     const auto data = ReadFile(s.host);
     if (!data)
       continue;
-    if (sprite ? SpriteNeedsPython(*data) : !IsWad3(*data))
-    {
-      s.kind = Kind::PythonAndPassthrough;  // Quake sprite or WAD2
-      continue;
-    }
 
-    std::vector<u8> baked;
-    if (sprite)
+    // disc path (relative to the gamedir) -> contents
+    std::map<std::string, std::vector<u8>> baked;
+    if (s.ext == ".spr")
     {
+      if (SpriteNeedsPython(*data))
+      {
+        s.kind = Kind::PythonAndPassthrough;  // Quake sprite
+        continue;
+      }
       // A sprite that can't be leaned (several frames, odd size) is copied as is.
-      baked = LeanHlSprite(*data).value_or(*data);
+      baked["sprites/" + s.stem + ".spr"] = LeanHlSprite(*data).value_or(*data);
     }
-    else
+    else if (s.ext == ".wad")
     {
+      if (!IsWad3(*data))
+      {
+        s.kind = Kind::PythonAndPassthrough;  // Quake WAD2
+        continue;
+      }
       const auto pack = BuildWadTexturePack(*data, cache_dir + "python-cmpr");
       if (!pack)
       {
         Warn(fmt::format("{}: not a readable WAD3 file", s.rel));
         continue;
       }
-      baked = *pack;
+      if (!pack->empty())
+        baked["media/" + s.stem + ".gct"] = *pack;
+    }
+    else
+    {
+      const auto info = ReadBspInfo(*data);
+      if (!info)
+      {
+        s.kind = Kind::PythonAndPassthrough;  // Quake or Source map
+        continue;
+      }
+      const fs::path gamedir = MapGamedir(StringToPath(s.host));
+      std::vector<std::string> loaded, missing;
+      const WadIndex wads = CollectWads(*info, gamedir, &loaded);
+      const auto pack = BuildWorldTexturePack(*data, wads, cache_dir + "python-cmpr", &missing);
+      if (!pack)
+      {
+        Warn(fmt::format("{}: not a readable BSP v30 map", s.rel));
+        continue;
+      }
+      if (!missing.empty())
+      {
+        std::string names;
+        for (size_t i = 0; i < std::min<size_t>(8, missing.size()); i++)
+          names += (i ? ", " : "") + missing[i];
+        Warn(fmt::format("{}: {} textures unresolved: {} ({} WADs searched)", s.rel,
+                         missing.size(), names, loaded.size()));
+      }
+      if (!pack->empty())
+        baked["media/wt_" + s.stem + ".gct"] = *pack;
+
+      // project._bsp_sky: gfx/env/<sky><side>.tga/bmp/png next to the map.
+      if (!info->sky.empty())
+      {
+        std::map<std::string, std::vector<u8>> sky;
+        for (std::string_view side : SKY_SIDES)
+        {
+          for (const char* ext : {".tga", ".bmp", ".png"})
+          {
+            const fs::path path =
+                gamedir / "gfx" / "env" / StringToPath(info->sky + std::string(side) + ext);
+            std::error_code ec;
+            if (!fs::is_regular_file(path, ec))
+              continue;
+            const auto img_data = ReadFile(PathToString(path));
+            const auto img = img_data ? LoadNativeImage(ext, *img_data) : std::nullopt;
+            if (img)
+              sky[fmt::format("media/sky_{}{}.cmp", info->sky, side)] = EncodeSkySide(*img);
+            break;
+          }
+        }
+        if (sky.size() == SKY_SIDES.size())
+          baked.merge(sky);
+      }
     }
 
     std::vector<std::string> outputs;
-    if (!baked.empty())
+    bool deferred = false;
+    for (const auto& [rel, contents] : baked)
     {
-      if (!Commit(out_rel, baked, live, &updated))
+      const std::string out_rel = Join(s.gamedir, rel);
+      if (!Commit(out_rel, contents, live, &updated))
       {
-        carry(key);
+        deferred = true;
         continue;
       }
       outputs.push_back(out_rel);
     }
+    if (deferred)
+    {
+      carry(key);  // left for the next boot
+      continue;
+    }
     converted++;
     if (it != state.end())
       RemoveOutputs(it->second.outputs, {outputs.begin(), outputs.end()});
-    next[key] = {s.Fingerprint(), outputs};
+    next[key] = {fp, outputs};
   }
 
   // --- Everything else, through the Python tool, one call per folder --------------------------

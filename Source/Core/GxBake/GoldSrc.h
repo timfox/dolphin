@@ -5,6 +5,8 @@
 //
 //   .spr  Half-Life (v2) sprites: lean HUD downsample   (core/sprite.py lean_hl_spr_bytes_from)
 //   .wad  WAD3 texture pack: every miptex, qpic and font (core/gct.py build_wad_texture_pack)
+//   .bsp  BSP v30 world texture pack, from the map and the WADs it uses
+//         (core/gct.py build_world_texture_pack, collect_wads)
 //
 // Outputs are byte-identical to the Python tool's, and the CMPR cache uses the same keys and file
 // layout (gct.py wt_encode_cached), so a cache folder can be shared with it. Quake sprites and
@@ -13,6 +15,8 @@
 #pragma once
 
 #include <cstdint>
+#include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -34,4 +38,39 @@ bool IsWad3(const std::vector<uint8_t>& data);
 // |cache_dir| (may be empty) holds encoded CMPR chains, shared with the Python tool's --cache.
 std::optional<std::vector<uint8_t>> BuildWadTexturePack(const std::vector<uint8_t>& wad,
                                                         const std::string& cache_dir);
+
+// What the baker needs from a GoldSrc (v30) map. Empty for Quake (v29) and Source maps, which
+// the Python tool converts.
+struct BspInfo
+{
+  std::vector<std::string> wads;  // worldspawn "wad" basenames, in order, without duplicates
+  std::string sky;                // worldspawn "skyname", lower-cased, or empty
+};
+std::optional<BspInfo> ReadBspInfo(const std::vector<uint8_t>& bsp);
+
+// Miptex found in WAD files, first WAD (and first lump) of a name wins (gct.collect_wads).
+class WadIndex
+{
+public:
+  // Indexes every uncompressed miptex lump of a WAD2/WAD3 file. Returns how many names were new.
+  int Ingest(std::shared_ptr<const std::vector<uint8_t>> wad);
+
+  struct Lump
+  {
+    std::shared_ptr<const std::vector<uint8_t>> wad;
+    int32_t offset;
+  };
+  const Lump* Find(const std::string& name) const;
+
+private:
+  std::map<std::string, Lump> m_lumps;
+};
+
+// media/wt_<map>.gct: each world texture of the map (liquids and sky excluded) as CMPR with mips,
+// from the map itself or else |wads|. Names found in neither are added to |missing|. Empty when
+// the map has no world textures.
+std::optional<std::vector<uint8_t>> BuildWorldTexturePack(const std::vector<uint8_t>& bsp,
+                                                          const WadIndex& wads,
+                                                          const std::string& cache_dir,
+                                                          std::vector<std::string>* missing);
 }  // namespace GxBake

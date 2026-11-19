@@ -10,8 +10,8 @@
 //   .mdl  GoldSrc studio model: lean mesh and downsampled skin companion (core/studio.py)
 //
 // Outputs are byte-identical to the Python tool's, and the CMPR cache uses the same keys and file
-// layout (gct.py wt_encode_cached), so a cache folder can be shared with it. Quake sprites and
-// WAD2 files need Quake's palette and are left to the Python tool.
+// layout (gct.py wt_encode_cached), so a cache folder can be shared with it. Quake WAD2 files
+// and v29 maps go through here too, with Quake's palette (Quake.h).
 
 #pragma once
 

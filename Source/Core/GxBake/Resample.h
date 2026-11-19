@@ -16,6 +16,7 @@ enum class Filter
   Nearest,
   Bicubic,
   Lanczos,
+  Box,
 };
 
 // Resize an 8-bit image with `channels` interleaved channels (Pillow's "L"/"RGB" modes; RGB is

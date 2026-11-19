@@ -24,6 +24,10 @@ std::optional<RgbaImage> ReadVtf(const std::vector<uint8_t>& data, std::string* 
 // vtf.parse_vmt: (shader, lower-cased key -> value) of a .vmt's top-level block.
 std::pair<std::string, std::map<std::string, std::string>> ParseVmt(const std::string& text);
 
+// vtf._ci_file: |root|/|rel| (Latin-1, forward slashes), else matched part by part ignoring case.
+std::optional<std::filesystem::path> FindFileNoCase(const std::filesystem::path& root,
+                                                    const std::string& rel);
+
 // vtf.find_materials_root: the nearest ancestor's materials/ folder.
 std::optional<std::filesystem::path> FindMaterialsRoot(const std::filesystem::path& start);
 

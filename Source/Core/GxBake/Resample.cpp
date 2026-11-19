@@ -43,6 +43,13 @@ double BicubicFilter(double x)
   return 0.0;
 }
 
+double BoxFilter(double x)
+{
+  if (x > -0.5 && x <= 0.5)
+    return 1.0;
+  return 0.0;
+}
+
 struct Coeffs
 {
   int ksize = 0;
@@ -52,8 +59,11 @@ struct Coeffs
 
 Coeffs Precompute(int in_size, float in0, float in1, int out_size, Filter filter)
 {
-  const double filter_support = filter == Filter::Lanczos ? 3.0 : 2.0;
-  double (*fn)(double) = filter == Filter::Lanczos ? LanczosFilter : BicubicFilter;
+  const double filter_support =
+      filter == Filter::Lanczos ? 3.0 : filter == Filter::Box ? 0.5 : 2.0;
+  double (*fn)(double) = filter == Filter::Lanczos ? LanczosFilter :
+                         filter == Filter::Box     ? BoxFilter :
+                                                     BicubicFilter;
 
   double scale = static_cast<double>(in1 - in0) / out_size;
   double filterscale = scale;

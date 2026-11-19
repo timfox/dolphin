@@ -694,8 +694,7 @@ struct AssetBaker::Impl
       else if (s.ext == ".spr" || s.ext == ".sp2" || s.ext == ".wad" || s.ext == ".bsp" ||
                s.ext == ".mdl")
       {
-        // GoldSrc and Quake sprites, WADs, maps and models bake natively; Source ones turn out
-        // to need the Python tool once their header is read.
+        // GoldSrc, Quake and Source sprites, WADs, maps and models bake natively.
         s.kind = Kind::NativeGoldSrc;
       }
       else if (GOLDSRC_EXTS.contains(s.ext))
@@ -896,7 +895,25 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
       }
     }
     if (map)
-      deps += MapDependencies(host_path);
+    {
+      // A Source map reads the materials its textures and sky resolve to.
+      std::ifstream head_file(host_path, std::ios::binary);
+      std::vector<u8> head(8);
+      head_file.read(reinterpret_cast<char*>(head.data()), 8);
+      head.resize(static_cast<size_t>(head_file.gcount()));
+      if (IsSourceMap(head))
+      {
+        if (const auto bsp = ReadFile(s.host))
+        {
+          for (const fs::path& dep : SourceMapDependencies(host_path, *bsp))
+            deps += FileFingerprint(dep);
+        }
+      }
+      else
+      {
+        deps += MapDependencies(host_path);
+      }
+    }
     const std::string fp = deps.empty() ? s.Fingerprint() : Md5Hex(s.Fingerprint() + ";" + deps);
     const auto it = state.find(key);
     if (it != state.end() && it->second.fingerprint == fp &&
@@ -1014,12 +1031,45 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
       if (const auto skins = sequence_group ? std::nullopt : StudioSkinCompanion(*data))
         baked["gc_studio/" + s.stem + "t.mdl"] = *skins;
     }
+    else if (IsSourceMap(*data))
+    {
+      // source_map.convert: the map rebuilt as BSP30 with its textures embedded, then its
+      // world texture pack and sky like any GoldSrc map's.
+      std::string error;
+      const auto conv = ConvertSourceMap(host_path, *data, {}, &error);
+      if (!conv)
+      {
+        Warn(fmt::format("{}: {}", s.rel, error));
+        continue;
+      }
+      for (const std::string& w : conv->warnings)
+        Warn(fmt::format("{}: {}", s.rel, w));
+      baked["maps/" + s.stem + ".bsp"] = conv->bsp;
+      if (!conv->sky.empty() && conv->sky_sides.size() == SKY_SIDES.size())
+      {
+        for (std::string_view side : SKY_SIDES)
+        {
+          baked[fmt::format("media/sky_{}{}.cmp", conv->sky, side)] =
+              EncodeSkySide(conv->sky_sides.at(std::string(side)));
+        }
+      }
+      std::vector<std::string> missing;
+      const auto pack =
+          BuildWorldTexturePack(conv->bsp, WadIndex{}, cache_dir + "python-cmpr", &missing);
+      if (pack && !pack->empty())
+        baked["media/wt_" + s.stem + ".gct"] = *pack;
+      if (!missing.empty())
+      {
+        Warn(fmt::format("{}: {} textures unresolved in the converted map", s.rel,
+                         missing.size()));
+      }
+    }
     else
     {
       const auto info = ReadBspInfo(*data);
       if (!info)
       {
-        s.kind = Kind::PythonAndPassthrough;  // Source map
+        Warn(fmt::format("{}: not a readable BSP map", s.rel));
         continue;
       }
       const fs::path gamedir = MapGamedir(host_path);

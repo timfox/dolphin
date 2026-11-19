@@ -533,6 +533,7 @@
     <ClInclude Include="DiscIO\WiiEncryptionCache.h" />
     <ClInclude Include="DiscIO\WiiSaveBanner.h" />
     <ClInclude Include="GxBake\AssetBaker.h" />
+    <ClInclude Include="GxBake\Bsp30.h" />
     <ClInclude Include="GxBake\Cmpr.h" />
     <ClInclude Include="GxBake\Config.h" />
     <ClInclude Include="GxBake\Encode.h" />
@@ -1256,6 +1257,7 @@
     <ClCompile Include="DiscIO\WiiEncryptionCache.cpp" />
     <ClCompile Include="DiscIO\WiiSaveBanner.cpp" />
     <ClCompile Include="GxBake\AssetBaker.cpp" />
+    <ClCompile Include="GxBake\Bsp30.cpp" />
     <ClCompile Include="GxBake\Cmpr.cpp" />
     <ClCompile Include="GxBake\Config.cpp" />
     <ClCompile Include="GxBake\Encode.cpp" />
@@ -1265,6 +1267,7 @@
     <ClCompile Include="GxBake\Process.cpp" />
     <ClCompile Include="GxBake\Quake.cpp" />
     <ClCompile Include="GxBake\Resample.cpp" />
+    <ClCompile Include="GxBake\SourceMap.cpp" />
     <ClCompile Include="GxBake\SourceModel.cpp" />
     <ClCompile Include="GxBake\Studio.cpp" />
     <ClCompile Include="GxBake\Vtf.cpp" />

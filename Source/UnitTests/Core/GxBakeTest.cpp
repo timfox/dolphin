@@ -11,6 +11,7 @@
 #include <gtest/gtest.h>
 
 #include "GxBakeSourceFixture.h"
+#include "GxBakeSourceMapFixture.h"
 
 #include "Common/FileUtil.h"
 #include "Common/Image.h"
@@ -573,6 +574,45 @@ TEST(GxBake, SourceModelMatchesPythonTool)
   EXPECT_EQ(Md5Of(*mdl), "6bd908017ecf152611e98ae7b8a44371");
   EXPECT_EQ(Md5Of(*GxBake::LeanStudioMesh(*mdl)), "76daa199a337499c07dce20bdbb8113a");
   EXPECT_EQ(Md5Of(*GxBake::StudioSkinCompanion(*mdl)), "4fb2bf79547085d550948b3d6cdebd7f");
+  File::DeleteDirRecursively(root);
+}
+
+TEST(GxBake, SourceMapMatchesPythonTool)
+{
+  const std::string root = File::CreateTempDir() + "/hl2/";
+  for (const auto& [rel, hex] : GxBakeSourceMapFixture::kFiles)
+  {
+    std::string bytes;
+    for (size_t i = 0; hex[i] && hex[i + 1]; i += 2)
+      bytes.push_back(static_cast<char>(std::stoi(std::string(hex + i, 2), nullptr, 16)));
+    File::CreateFullPath(root + rel);
+    File::WriteStringToFile(root + rel, bytes);
+  }
+  const std::string path = root + "maps/fix.bsp";
+  std::string text;
+  ASSERT_TRUE(File::ReadFileToString(path, text));
+  const std::vector<u8> data(text.begin(), text.end());
+  ASSERT_TRUE(GxBake::IsSourceMap(data));
+  EXPECT_EQ(GxBake::SourceMapDependencies(path, data).size(), 2u);  // the game folder's grate
+
+  std::string error;
+  const auto conv = GxBake::ConvertSourceMap(path, data, {}, &error);
+  ASSERT_TRUE(conv.has_value()) << error;
+  EXPECT_EQ(Md5Of(conv->bsp), "9f938b75f3d5ea4ad327cd3714dab863");
+  ASSERT_EQ(conv->warnings.size(), 1u);
+  EXPECT_EQ(conv->warnings[0],
+            "2 material(s) not found, grey used: test/missing, liquids/water_a");
+  EXPECT_EQ(conv->sky, "Tsky");
+  ASSERT_EQ(conv->sky_sides.size(), 6u);
+  EXPECT_EQ(Md5Of(GxBake::EncodeSkySide(conv->sky_sides.at("rt"))),
+            "3d6dfd8b8a41528879bf0bf46b244cda");
+  EXPECT_EQ(conv->props,
+            (std::vector<std::string>{"models/Props/Barrel.MDL", "models/props/crate01.mdl"}));
+  std::vector<std::string> missing;
+  const auto world = GxBake::BuildWorldTexturePack(conv->bsp, {}, "", &missing);
+  ASSERT_TRUE(world.has_value());
+  EXPECT_TRUE(missing.empty());
+  EXPECT_EQ(Md5Of(*world), "4182d13b654fb2e4859d6d85a53d56d5");
   File::DeleteDirRecursively(root);
 }
 

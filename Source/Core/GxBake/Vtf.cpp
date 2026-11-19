@@ -543,6 +543,11 @@ std::optional<RgbaImage> ReadVtf(const Bytes& data, std::string* error)
   return DecodePixels(fmt, data.data() + off, w, h, error);
 }
 
+std::optional<fs::path> FindFileNoCase(const fs::path& root, const std::string& rel)
+{
+  return CiFile(root, rel);
+}
+
 std::pair<std::string, std::map<std::string, std::string>> ParseVmt(const std::string& raw)
 {
   // re.sub(r"//[^\n]*", "", text)

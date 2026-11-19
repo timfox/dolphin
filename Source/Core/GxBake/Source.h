@@ -6,12 +6,15 @@
 //   .mdl (IDST v44-49) + .vvd + .vtx   core/source_mdl.py: bones, LOD 0 of each bodypart's first
 //                                       model, family-0 skins through .vmt/.vtf, the sequences
 //                                       stored in the .mdl, helper bones for blended weights
-//   .bsp (VBSP)                         core/source_map.py: the map rebuilt as BSP30
+//   .bsp (VBSP v19-21, 25)              core/source_map.py: the map rebuilt as BSP30, its
+//                                       textures embedded from the pakfile, game folders or
+//                                       VPKs, the sky's six sides read the same way
 
 #pragma once
 
 #include <cstdint>
 #include <filesystem>
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -49,4 +52,41 @@ std::optional<ImportedModel> ImportSourceModel(const std::filesystem::path& path
                                                const std::vector<uint8_t>& data,
                                                const SourceModelOptions& options,
                                                std::string* error);
+
+bool IsSourceMap(const std::vector<uint8_t>& data);  // VBSP v17-29
+
+struct SourceMapOptions
+{
+  int max_texture = 256;  // largest embedded miptex edge
+  int min_texture = 32;
+  double texel_density = 1.0;  // texels per world unit
+  int disp_power = 2;          // displacement detail kept (2 = 5x5 vertices)
+  double light_gamma = 2.2;
+  double light_scale = 1.0;
+  bool props = true;     // prop_static -> cycler_sprite entities
+  bool overlays = true;  // info_overlay decals become faces
+  bool hulls = true;     // clip hulls 1-3
+  std::vector<std::filesystem::path> search;  // extra game folders or _dir.vpk files
+  int vis_merge = 8;
+};
+
+struct SourceMapResult
+{
+  std::vector<uint8_t> bsp;
+  std::vector<std::string> warnings;
+  std::string sky;                             // worldspawn's skyname
+  std::map<std::string, RgbaImage> sky_sides;  // "rt", "bk", ... that were found
+  std::vector<std::string> props;              // prop_static models, sorted
+};
+
+// source_map.convert. On failure the reason goes to |error|.
+std::optional<SourceMapResult> ConvertSourceMap(const std::filesystem::path& path,
+                                                const std::vector<uint8_t>& data,
+                                                const SourceMapOptions& options,
+                                                std::string* error);
+
+// Files on disk a Source map's conversion reads besides the map: the game folders' material
+// files its textures and sky resolve to, and the VPKs it searches.
+std::vector<std::filesystem::path> SourceMapDependencies(const std::filesystem::path& path,
+                                                         const std::vector<uint8_t>& data);
 }  // namespace GxBake

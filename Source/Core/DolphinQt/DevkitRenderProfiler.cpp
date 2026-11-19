@@ -15,6 +15,7 @@
 #include <QHeaderView>
 #include <QLabel>
 #include <QLineEdit>
+#include <QMenu>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QSplitter>
@@ -489,6 +490,11 @@ RenderProfilerWidget::RenderProfilerWidget(QWidget* parent) : QDockWidget(parent
   toolbar->addWidget(m_live);
   layout->addLayout(toolbar);
 
+  m_hints = new QLabel;
+  m_hints->setTextFormat(Qt::RichText);
+  m_hints->setVisible(false);
+  layout->addWidget(m_hints);
+
   // Graphs | counters | TEV usage, side by side so the panel works in the short console strip.
   auto* const splitter = new QSplitter(Qt::Horizontal);
   splitter->setChildrenCollapsible(false);
@@ -713,6 +719,33 @@ void RenderProfilerWidget::UpdateSelection()
     m_tev->SetCounts({});
     m_tev_label->setText(tr("TEV stages per draw"));
   }
+
+  const std::vector<RenderProfiler::Hint> hints =
+      shown ? RenderProfiler::GetHints(*shown) : std::vector<RenderProfiler::Hint>{};
+  m_hints->setVisible(!hints.empty());
+  if (!hints.empty())
+  {
+    const auto color_for = [](const RenderProfiler::Hint& hint) {
+      return hint.severity == RenderProfiler::Hint::Severity::Warning ? WarningColor().name() :
+                                                                       QStringLiteral("#8ec5ff");
+    };
+    QString text = QStringLiteral("<span style=\"color:%1\">&#9679;</span> %2")
+                       .arg(color_for(hints[0]))
+                       .arg(QString::fromStdString(hints[0].text).toHtmlEscaped());
+    if (hints.size() > 1)
+      text += QStringLiteral(" <i>") + tr("(+%1 more)").arg(hints.size() - 1) +
+              QStringLiteral("</i>");
+    m_hints->setText(text);
+
+    QString tooltip;
+    for (const auto& hint : hints)
+    {
+      tooltip += QStringLiteral("<p><span style=\"color:%1\">&#9679;</span> %2</p>")
+                     .arg(color_for(hint))
+                     .arg(QString::fromStdString(hint.text).toHtmlEscaped());
+    }
+    m_hints->setToolTip(tooltip);
+  }
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -789,7 +822,7 @@ FrameCaptureWidget::FrameCaptureWidget(QWidget* parent) : QDockWidget(parent)
                             tr("Save the captured draw calls and copies as a CSV file."));
   m_export->setEnabled(false);
   m_filter = new QLineEdit;
-  m_filter->setPlaceholderText(tr("Filter (e.g. copy, Triangles, @80, Blend)"));
+  m_filter->setPlaceholderText(tr("Filter (e.g. copy, Quads, @0020, Blend)"));
   m_filter->setClearButtonEnabled(true);
   m_filter->setMaximumWidth(280);
   m_summary = new QLabel(tr("No capture yet."));
@@ -847,6 +880,16 @@ FrameCaptureWidget::FrameCaptureWidget(QWidget* parent) : QDockWidget(parent)
   connect(m_capture, &QToolButton::clicked, this, &FrameCaptureWidget::RequestCapture);
   connect(m_export, &QToolButton::clicked, this, &FrameCaptureWidget::ExportCSV);
   connect(m_filter, &QLineEdit::textChanged, this, &FrameCaptureWidget::ApplyFilter);
+  m_tree->setToolTip(
+      tr("Double-click a copy or textured draw to open its memory in the Memory Viewer."));
+  m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
+  connect(m_tree, &QTreeWidget::customContextMenuRequested, this,
+          &FrameCaptureWidget::ShowContextMenu);
+  connect(m_tree, &QTreeWidget::itemDoubleClicked, this, [this](QTreeWidgetItem* item) {
+    const auto addresses = AddressesFor(item);
+    if (!addresses.empty())
+      emit ShowMemoryRequested(addresses.front().second);
+  });
   connect(m_tree, &QTreeWidget::currentItemChanged, this,
           [this](QTreeWidgetItem* current) { ShowDetails(current); });
 }
@@ -1031,6 +1074,45 @@ void FrameCaptureWidget::ShowDetails(QTreeWidgetItem* item)
   add(tr("Alpha test"), QString::fromStdString(draw.alpha_test));
   add(tr("Cull mode"), QString::fromStdString(draw.cull));
   add(tr("Fog"), QString::fromStdString(draw.fog));
+}
+
+std::vector<std::pair<QString, u32>>
+FrameCaptureWidget::AddressesFor(const QTreeWidgetItem* item) const
+{
+  std::vector<std::pair<QString, u32>> result;
+  if (!item || !m_capture_data)
+    return result;
+
+  const int index = item->data(0, ROLE_INDEX).toInt();
+  if (item->data(0, ROLE_KIND).toInt() == KIND_COPY)
+  {
+    result.emplace_back(tr("copy destination"), m_capture_data->copies[index].dst_address);
+    return result;
+  }
+
+  const auto& draw = m_capture_data->draws[index];
+  for (size_t i = 0; i < draw.texture_addresses.size(); ++i)
+    result.emplace_back(tr("texture %1").arg(i + 1), draw.texture_addresses[i]);
+  return result;
+}
+
+void FrameCaptureWidget::ShowContextMenu(const QPoint& pos)
+{
+  QTreeWidgetItem* const item = m_tree->itemAt(pos);
+  const auto addresses = AddressesFor(item);
+  if (addresses.empty())
+    return;
+
+  QMenu menu(this);
+  for (const auto& [label, address] : addresses)
+  {
+    menu.addAction(IconSet::Get("memory"),
+                   tr("Show %1 in Memory Viewer (0x%2)")
+                       .arg(label)
+                       .arg(address, 8, 16, QLatin1Char('0')),
+                   this, [this, address] { emit ShowMemoryRequested(address); });
+  }
+  menu.exec(m_tree->viewport()->mapToGlobal(pos));
 }
 
 void FrameCaptureWidget::ExportCSV()

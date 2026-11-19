@@ -163,6 +163,11 @@
     <ClCompile Include="Debugger\RegisterWidget.cpp" />
     <ClCompile Include="Debugger\ThreadWidget.cpp" />
     <ClCompile Include="Debugger\WatchWidget.cpp" />
+    <ClCompile Include="DevkitBuildPanels.cpp" />
+    <ClCompile Include="DevkitPanels.cpp" />
+    <ClCompile Include="DevkitProject.cpp" />
+    <ClCompile Include="DevkitRenderProfiler.cpp" />
+    <ClCompile Include="DevkitStatusBar.cpp" />
     <ClCompile Include="DiscordHandler.cpp" />
     <ClCompile Include="DiscordJoinRequestDialog.cpp" />
     <ClCompile Include="EmulatedUSB\LogitechMicWindow.cpp" />
@@ -175,12 +180,15 @@
     <ClCompile Include="GameList\GameTracker.cpp" />
     <ClCompile Include="GameList\GridProxyModel.cpp" />
     <ClCompile Include="GameList\ListProxyModel.cpp" />
+    <ClCompile Include="GameCubeTheme.cpp" />
+    <ClCompile Include="GameViewWidget.cpp" />
     <ClCompile Include="GBAHost.cpp" />
     <ClCompile Include="GBAWidget.cpp" />
     <ClCompile Include="GCMemcardCreateNewDialog.cpp" />
     <ClCompile Include="GCMemcardManager.cpp" />
     <ClCompile Include="Host.cpp" />
     <ClCompile Include="HotkeyScheduler.cpp" />
+    <ClCompile Include="IconSet.cpp" />
     <ClCompile Include="InfinityBase/InfinityBaseWindow.cpp" />
     <ClCompile Include="Main.cpp" />
     <ClCompile Include="MainWindow.cpp" />
@@ -265,6 +273,7 @@
     <ClInclude Include="Config\NewPatchDialog.h" />
     <QtMoc Include="Config\PatchesWidget.h" />
     <ClInclude Include="Debugger\RegisterColumn.h" />
+    <ClInclude Include="GameCubeTheme.h" />
     <ClInclude Include="GBAHost.h" />
     <ClInclude Include="QtUtils\ActionHelper.h" />
     <ClInclude Include="QtUtils\ClearLayoutRecursively.h" />
@@ -278,6 +287,7 @@
     <ClInclude Include="QtUtils\RunOnObject.h" />
     <ClInclude Include="QtUtils\SignalBlocking.h" />
     <ClInclude Include="QtUtils\WrapInScrollArea.h" />
+    <ClInclude Include="IconSet.h" />
     <ClInclude Include="ResourcePackManager.h" />
     <ClInclude Include="Resources.h" />
     <ClInclude Include="Settings\OnScreenDisplayPane.h" />
@@ -398,6 +408,11 @@
     <QtMoc Include="Debugger\RegisterWidget.h" />
     <QtMoc Include="Debugger\ThreadWidget.h" />
     <QtMoc Include="Debugger\WatchWidget.h" />
+    <QtMoc Include="DevkitBuildPanels.h" />
+    <QtMoc Include="DevkitPanels.h" />
+    <QtMoc Include="DevkitProject.h" />
+    <QtMoc Include="DevkitRenderProfiler.h" />
+    <QtMoc Include="DevkitStatusBar.h" />
     <QtMoc Include="DiscordHandler.h" />
     <QtMoc Include="DiscordJoinRequestDialog.h" />
     <QtMoc Include="EmulatedUSB\LogitechMicWindow.h" />
@@ -410,6 +425,7 @@
     <QtMoc Include="GameList\GameTracker.h" />
     <QtMoc Include="GameList\GridProxyModel.h" />
     <QtMoc Include="GameList\ListProxyModel.h" />
+    <QtMoc Include="GameViewWidget.h" />
     <QtMoc Include="GBAWidget.h" />
     <QtMoc Include="GCMemcardCreateNewDialog.h" />
     <QtMoc Include="GCMemcardManager.h" />
@@ -478,7 +494,9 @@
   </ItemGroup>
   <ItemGroup>
     <Text Include="Styles\Dark\dark.qss" />
+    <QtRcc Include="Resources\FontAwesome\fontawesome.qrc" />
     <QtRcc Include="Styles\Dark\dark.qrc" />
+    <QtRcc Include="Styles\GameCube\gamecube.qrc" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="$(CoreDir)DolphinLib.vcxproj">

@@ -677,6 +677,12 @@ void MainWindow::CreateDevkitPanels()
     m_frame_capture_widget->raise();
     m_frame_capture_widget->RequestCapture();
   });
+  connect(m_frame_capture_widget, &FrameCaptureWidget::ShowMemoryRequested, this,
+          [this](u32 address) {
+            // GX addresses are physical; the Memory Viewer works on cached virtual addresses.
+            ShowDebugPanel(m_memory_widget, &Settings::SetMemoryVisible);
+            m_memory_widget->ShowAddress((address & 0x01FFFFFF) | 0x80000000, false);
+          });
   connect(m_render_profiler_widget, &RenderProfilerWidget::FIFOPlayerRequested, this,
           &MainWindow::ShowFIFOPlayer);
 

@@ -40,6 +40,7 @@ class GameList;
 class GameViewWidget;
 class BuildOutputWidget;
 class DevkitBuilder;
+class DevkitPackager;
 class DevkitProject;
 class DevkitStatusBar;
 class DiagnosticsWidget;
@@ -171,6 +172,8 @@ private:
   void PlaceNewEditorPanels();
   void CreateProjectMenu();
   void UpdateProjectActions();
+  void UpdateRecentProjectsMenu();
+  void ShowProjectOutput();
   void UpdateWindowTitle();
   void QueueDefaultDockSizes();
   void NewProject();
@@ -292,6 +295,9 @@ private:
   DevkitStatusBar* m_devkit_status_bar = nullptr;
   DevkitProject* m_project = nullptr;
   DevkitBuilder* m_builder = nullptr;
+  DevkitPackager* m_packager = nullptr;
+  QAction* m_make_dol_action = nullptr;
+  QAction* m_pack_gcm_action = nullptr;
   ProjectWidget* m_project_widget = nullptr;
   MemoryAnalyzer* m_memory_analyzer = nullptr;
   MemoryMapWidget* m_memory_map_widget = nullptr;
@@ -301,6 +307,7 @@ private:
   DiagnosticsWidget* m_errors_widget = nullptr;
   RenderProfilerWidget* m_render_profiler_widget = nullptr;
   FrameCaptureWidget* m_frame_capture_widget = nullptr;
+  QMenu* m_recent_projects_menu = nullptr;
   QMenu* m_project_menu = nullptr;
   QAction* m_close_project_action = nullptr;
   QAction* m_build_action = nullptr;

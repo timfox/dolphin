@@ -192,6 +192,7 @@
     <ClInclude Include="Core\Boot\Boot.h" />
     <ClInclude Include="Core\Boot\DolReader.h" />
     <ClInclude Include="Core\Boot\ElfReader.h" />
+    <ClInclude Include="Core\Boot\ElfToDol.h" />
     <ClInclude Include="Core\Boot\ElfTypes.h" />
     <ClInclude Include="Core\BootManager.h" />
     <ClInclude Include="Core\CheatCodes.h" />
@@ -920,6 +921,7 @@
     <ClCompile Include="Core\Boot\Boot.cpp" />
     <ClCompile Include="Core\Boot\DolReader.cpp" />
     <ClCompile Include="Core\Boot\ElfReader.cpp" />
+    <ClCompile Include="Core\Boot\ElfToDol.cpp" />
     <ClCompile Include="Core\BootManager.cpp" />
     <ClCompile Include="Core\CheatGeneration.cpp" />
     <ClCompile Include="Core\CheatSearch.cpp" />

@@ -7,6 +7,7 @@
 #include <QActionEvent>
 #include <QIcon>
 #include <QLinearGradient>
+#include <QMenu>
 #include <QPainter>
 #include <QPainterPath>
 #include <QSizePolicy>
@@ -112,7 +113,13 @@ void ToolBar::MakeActions()
 {
   // Layout follows the devkit concept: file actions, then emulation control, then settings, then
   // the debugger stepping controls (debug mode only), with the target status panel on the right.
+  m_new_project_action = addAction(tr("New"), this, &ToolBar::NewProjectPressed);
+  m_new_project_action->setToolTip(tr("Create a new GameCube project from a template"));
+  m_set_project_action = addAction(tr("Project"), this, &ToolBar::SetProjectPressed);
+  m_set_project_action->setToolTip(
+      tr("Set the project folder (Ctrl+Shift+P). The arrow lists recent projects."));
   m_open_action = addAction(tr("Open"), this, &ToolBar::OpenPressed);
+  m_open_action->setToolTip(tr("Open a game, DOL or ELF file"));
   m_refresh_action = addAction(tr("Refresh"), [this] { emit RefreshPressed(); });
   m_refresh_action->setEnabled(false);
 
@@ -122,6 +129,11 @@ void ToolBar::MakeActions()
   m_build_action->setToolTip(tr("Build the open project (Ctrl+B)"));
   m_run_action = addAction(tr("Run"), this, &ToolBar::RunPressed);
   m_run_action->setToolTip(tr("Build the open project and boot it in the Game View (Ctrl+R)"));
+  m_make_dol_action = addAction(tr("Make DOL"), this, &ToolBar::MakeDolPressed);
+  m_make_dol_action->setToolTip(tr("Convert the project's newest ELF into a DOL"));
+  m_pack_gcm_action = addAction(tr("Pack GCM"), this, &ToolBar::PackGcmPressed);
+  m_pack_gcm_action->setToolTip(
+      tr("Pack the project's disc folder (sys/ and files/) into a GCM disc image"));
   m_build_separator = addSeparator();
 
   m_pause_play_action = addAction(tr("Play"), this, &ToolBar::PlayPressed);
@@ -268,7 +280,11 @@ void ToolBar::UpdateIcons()
   m_show_pc_action->setIcon(IconSet::Get("location-crosshairs"));
   m_set_pc_action->setIcon(IconSet::Get("location-dot"));
 
+  m_new_project_action->setIcon(IconSet::Get("folder-plus"));
+  m_set_project_action->setIcon(IconSet::Get("folder-tree"));
   m_open_action->setIcon(IconSet::Get("folder-open"));
+  m_make_dol_action->setIcon(IconSet::Get("file-export"));
+  m_pack_gcm_action->setIcon(IconSet::Get("compact-disc"));
   m_build_action->setIcon(IconSet::Get("screwdriver-wrench"));
   m_run_action->setIcon(IconSet::Get("circle-play"));
   m_refresh_action->setIcon(IconSet::Get("rotate-right"));
@@ -287,8 +303,19 @@ void ToolBar::UpdateIcons()
   m_graphics_action->setIcon(IconSet::Get("display"));
 }
 
+void ToolBar::SetRecentProjectsMenu(QMenu* menu)
+{
+  m_set_project_action->setMenu(menu);
+  if (auto* const button = qobject_cast<QToolButton*>(widgetForAction(m_set_project_action)))
+    button->setPopupMode(QToolButton::MenuButtonPopup);
+}
+
 void ToolBar::SetProjectActionsVisible(bool visible)
 {
+  m_new_project_action->setVisible(visible);
+  m_set_project_action->setVisible(visible);
+  m_make_dol_action->setVisible(visible);
+  m_pack_gcm_action->setVisible(visible);
   m_build_action->setVisible(visible);
   m_run_action->setVisible(visible);
   m_build_separator->setVisible(visible);
@@ -298,5 +325,9 @@ void ToolBar::SetProjectState(bool project_open, bool building)
 {
   m_build_action->setEnabled(project_open && !building);
   m_run_action->setEnabled(project_open && !building);
+  m_make_dol_action->setEnabled(project_open && !building);
+  m_pack_gcm_action->setEnabled(project_open && !building);
+  m_set_project_action->setEnabled(!building);
+  m_new_project_action->setEnabled(!building);
   m_build_action->setText(building ? tr("Building") : tr("Build"));
 }

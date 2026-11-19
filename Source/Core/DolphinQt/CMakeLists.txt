@@ -383,6 +383,8 @@ add_executable(dolphin-emu
   GameViewWidget.h
   IconSet.cpp
   IconSet.h
+  DevkitPackager.cpp
+  DevkitPackager.h
   DevkitPanels.cpp
   DevkitPanels.h
   DevkitRenderProfiler.cpp

@@ -513,3 +513,16 @@ QToolBar#toolbar QToolButton:checked {
 	background: #3a1730;
 	border-color: #ff6b9d;
 }
+/* Set Project's recent-projects arrow */
+QToolBar#toolbar QToolButton[popupMode="1"] {
+	padding-right: 16px;
+}
+QToolBar#toolbar QToolButton::menu-button {
+	background: transparent;
+	border: 0;
+	border-left: 1px solid #4a3f8a;
+	width: 14px;
+}
+QToolBar#toolbar QToolButton::menu-button:hover {
+	background: #2e2558;
+}

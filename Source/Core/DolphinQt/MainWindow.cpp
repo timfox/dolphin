@@ -113,6 +113,7 @@
 #include "DolphinQt/DevkitBuildPanels.h"
 #include "DolphinQt/DevkitPanels.h"
 #include "DolphinQt/DevkitRenderProfiler.h"
+#include "DolphinQt/DevkitPackager.h"
 #include "DolphinQt/DevkitProject.h"
 #include "DolphinQt/DevkitStatusBar.h"
 #include "DolphinQt/IconSet.h"
@@ -486,6 +487,7 @@ void MainWindow::CreateComponents()
   m_devkit_status_bar = new DevkitStatusBar(this);
   m_project = new DevkitProject(this);
   m_builder = new DevkitBuilder(this);
+  m_packager = new DevkitPackager(m_project, this);
   m_project_widget = new ProjectWidget(m_project, this);
   m_build_output_widget = new BuildOutputWidget(this);
   m_warnings_widget = new DiagnosticsWidget(BuildDiagnostic::Severity::Warning, this);
@@ -710,6 +712,17 @@ void MainWindow::CreateDevkitPanels()
             m_warnings_widget->Add(diagnostic, m_project->GetPath());
             m_errors_widget->Add(diagnostic, m_project->GetPath());
           });
+  // Make DOL and Pack GCM report to the Output panel like a build does.
+  connect(m_packager, &DevkitPackager::OutputLine, m_build_output_widget,
+          &BuildOutputWidget::AppendLine);
+  connect(m_packager, &DevkitPackager::StatusMessage, this, [this](const QString& text, bool success) {
+    m_build_output_widget->AppendStatus(text, success);
+    m_devkit_status_bar->showMessage(text, 10000);
+  });
+  connect(m_packager, &DevkitPackager::Progress, this,
+          [this](const QString& text) { m_devkit_status_bar->showMessage(text, 2000); });
+  connect(m_packager, &DevkitPackager::PackingChanged, this, &MainWindow::UpdateProjectActions);
+
   connect(m_builder, &DevkitBuilder::Finished, this,
           [this](bool success, int warnings, int errors, qint64 elapsed_ms) {
             const QString summary =
@@ -742,8 +755,13 @@ void MainWindow::CreateProjectMenu()
   m_project_menu = new QMenu(tr("&Project"), m_menu_bar);
   m_project_menu->addAction(IconSet::Get("folder-plus"), tr("&New Project..."), this,
                             &MainWindow::NewProject);
-  m_project_menu->addAction(IconSet::Get("folder-open"), tr("&Open Project Folder..."), this,
-                            &MainWindow::OpenProject);
+  QAction* const set_project = m_project_menu->addAction(
+      IconSet::Get("folder-open"), tr("&Set Project..."), this, &MainWindow::OpenProject);
+  set_project->setShortcut(QKeySequence(Qt::CTRL | Qt::SHIFT | Qt::Key_P));
+  m_recent_projects_menu = m_project_menu->addMenu(IconSet::Get("clock-rotate-left"),
+                                                   tr("Recent &Projects"));
+  connect(m_recent_projects_menu, &QMenu::aboutToShow, this, &MainWindow::UpdateRecentProjectsMenu);
+  UpdateRecentProjectsMenu();
   m_close_project_action =
       m_project_menu->addAction(tr("&Close Project"), m_project, &DevkitProject::Close);
   m_project_menu->addSeparator();
@@ -766,25 +784,71 @@ void MainWindow::CreateProjectMenu()
                                            [this] { BuildProject(true); });
   // F5 is a default Load State hotkey, so use Ctrl+R.
   m_run_action->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_R));
-  m_cancel_build_action = m_project_menu->addAction(IconSet::Get("stop"), tr("&Stop Build"),
-                                                    m_builder, &DevkitBuilder::Cancel);
+  m_cancel_build_action =
+      m_project_menu->addAction(IconSet::Get("stop"), tr("&Stop Build"), this, [this] {
+        m_builder->Cancel();
+        m_packager->CancelPack();
+      });
+  m_project_menu->addSeparator();
+  m_make_dol_action =
+      m_project_menu->addAction(IconSet::Get("file-export"), tr("Make &DOL"), this, [this] {
+        ShowProjectOutput();
+        m_packager->MakeDol();
+      });
+  m_pack_gcm_action =
+      m_project_menu->addAction(IconSet::Get("compact-disc"), tr("&Pack GCM"), this, [this] {
+        ShowProjectOutput();
+        m_packager->PackGcm();
+      });
   m_project_menu->addSeparator();
   m_project_settings_action = m_project_menu->addAction(
-      IconSet::Get("gear"), tr("Project &Settings..."), this, &MainWindow::ShowProjectSettings);
+      IconSet::Get("gear"), tr("Project &Window..."), this, &MainWindow::ShowProjectSettings);
 
   // Sits between File and Emulation, like an IDE's Project/Build menu.
   const QList<QAction*> menus = m_menu_bar->actions();
   m_menu_bar->insertMenu(menus.size() > 1 ? menus[1] : nullptr, m_project_menu);
 
   connect(m_tool_bar, &ToolBar::BuildPressed, this, [this] { BuildProject(false); });
+  connect(m_tool_bar, &ToolBar::NewProjectPressed, this, &MainWindow::NewProject);
+  connect(m_tool_bar, &ToolBar::SetProjectPressed, this, &MainWindow::OpenProject);
+  connect(m_tool_bar, &ToolBar::MakeDolPressed, m_make_dol_action, &QAction::trigger);
+  connect(m_tool_bar, &ToolBar::PackGcmPressed, m_pack_gcm_action, &QAction::trigger);
+  m_tool_bar->SetRecentProjectsMenu(m_recent_projects_menu);
   connect(m_tool_bar, &ToolBar::RunPressed, this, [this] { BuildProject(true); });
+}
+
+void MainWindow::UpdateRecentProjectsMenu()
+{
+  m_recent_projects_menu->clear();
+  const QStringList recent = DevkitProject::GetRecentProjects();
+  for (const QString& path : recent)
+  {
+    QAction* const action = m_recent_projects_menu->addAction(
+        IconSet::Get("folder"),
+        QStringLiteral("%1  (%2)").arg(QFileInfo(path).fileName(), QDir::toNativeSeparators(path)),
+        this, [this, path] {
+          if (m_project->Open(path))
+          {
+            m_project_widget->show();
+            m_project_widget->raise();
+          }
+        });
+    action->setEnabled(!m_builder->IsRunning() && !m_packager->IsPacking());
+  }
+  if (recent.isEmpty())
+    m_recent_projects_menu->addAction(tr("No recent projects"))->setEnabled(false);
+  m_recent_projects_menu->addSeparator();
+  m_recent_projects_menu->addAction(tr("&Clear Recent Projects"), m_project,
+                                    &DevkitProject::ClearRecentProjects)
+      ->setEnabled(!recent.isEmpty());
 }
 
 void MainWindow::UpdateProjectActions()
 {
   const bool open = m_project->IsOpen();
-  const bool building = m_builder->IsRunning();
-  for (QAction* action : {m_build_action, m_rebuild_action, m_clean_action, m_run_action})
+  const bool building = m_builder->IsRunning() || m_packager->IsPacking();
+  for (QAction* action : {m_build_action, m_rebuild_action, m_clean_action, m_run_action,
+                          m_make_dol_action, m_pack_gcm_action})
     action->setEnabled(open && !building);
   m_close_project_action->setEnabled(open && !building);
   m_project_settings_action->setEnabled(open);
@@ -837,10 +901,12 @@ void MainWindow::NewProject()
 
 void MainWindow::OpenProject()
 {
+  // Maya-style Set Project: any folder can become the project; one without a project definition
+  // gets one with the default folder rules.
   const QString path = QFileDialog::getExistingDirectory(
-      this, tr("Open Project Folder"),
-      m_project->IsOpen() ? m_project->GetPath() : QDir::homePath());
-  if (path.isEmpty() || !m_project->Open(path))
+      this, tr("Set Project"), m_project->IsOpen() ? m_project->GetPath() : QDir::homePath());
+  if (path.isEmpty() || m_builder->IsRunning() || m_packager->IsPacking() ||
+      !m_project->SetProject(path))
     return;
   m_project_widget->show();
   m_project_widget->raise();
@@ -870,6 +936,12 @@ void MainWindow::ShowProjectSettings()
   dialog.exec();
 }
 
+void MainWindow::ShowProjectOutput()
+{
+  m_build_output_widget->show();
+  m_build_output_widget->raise();
+}
+
 void MainWindow::BuildProject(bool then_run)
 {
   RunCommandForProject(m_project->GetBuildCommand(), tr("Build"), then_run);
@@ -883,7 +955,7 @@ void MainWindow::CleanProject()
 void MainWindow::RunCommandForProject(const QString& command, const QString& title,
                                       bool then_run)
 {
-  if (!m_project->IsOpen() || m_builder->IsRunning())
+  if (!m_project->IsOpen() || m_builder->IsRunning() || m_packager->IsPacking())
     return;
 
   if (command.trimmed().isEmpty())
@@ -1467,11 +1539,7 @@ void MainWindow::ResetEditorLayout()
     dock->show();
   }
   Settings::GetQSettings().setValue(QStringLiteral("mainwindow/editormemorypanels"), true);
-  m_project_widget->raise();
   m_game_view_widget->show();
-  m_game_view_widget->raise();
-  inspector_tabs[0]->raise();
-  console_tabs[0]->raise();
 
   // Turn on the panels the editor layout is built around. The debugger panels still only appear
   // while debug mode is enabled.
@@ -1483,6 +1551,17 @@ void MainWindow::ResetEditorLayout()
   settings.SetWatchVisible(true);
   settings.SetBreakpointsVisible(true);
   settings.RefreshWidgetVisibility();
+
+  // Raise the first tab of each group last: showing panels above can bring their tab forward.
+  m_project_widget->raise();
+  m_game_view_widget->raise();
+  inspector_tabs[0]->raise();
+  console_tabs[0]->raise();
+  // The log shows itself once its settings apply, which brings the last tab back to the front.
+  QTimer::singleShot(0, this, [this] {
+    m_game_view_widget->raise();
+    m_log_widget->raise();
+  });
 
   // Sizes can only be applied once the window has its real geometry, which on first launch comes
   // after this runs (the window is shown, then maximized or restored by the window manager). Keep

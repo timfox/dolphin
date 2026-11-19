@@ -14,6 +14,7 @@
 		<file>circle-play.svg</file>
 		<file>circle-xmark.svg</file>
 		<file>circle.svg</file>
+		<file>clock-rotate-left.svg</file>
 		<file>code.svg</file>
 		<file>compact-disc.svg</file>
 		<file>crosshairs.svg</file>
@@ -30,6 +31,7 @@
 		<file>file-lines.svg</file>
 		<file>file.svg</file>
 		<file>film.svg</file>
+		<file>floppy-disk.svg</file>
 		<file>folder-open.svg</file>
 		<file>folder-plus.svg</file>
 		<file>folder-tree.svg</file>
@@ -50,6 +52,7 @@
 		<file>memory.svg</file>
 		<file>microchip.svg</file>
 		<file>network-wired.svg</file>
+		<file>palette.svg</file>
 		<file>pause.svg</file>
 		<file>play.svg</file>
 		<file>rotate-left.svg</file>

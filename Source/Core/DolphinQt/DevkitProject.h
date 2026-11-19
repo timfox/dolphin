@@ -3,15 +3,19 @@
 
 #pragma once
 
+#include <vector>
+
 #include <QElapsedTimer>
 #include <QObject>
 #include <QString>
+#include <QStringList>
 
 class QProcess;
 
-// A homebrew project folder opened in the devkit editor. Per-project settings (build/clean
-// commands, run target) live in a ".dolphin-devkit.ini" file inside the project so they can be
-// committed with the project's source.
+// A homebrew project folder opened in the devkit editor, set like a Maya project: the project
+// folder is the workspace every relative path resolves against, and its ".dolphin-devkit.ini"
+// (the project definition, like Maya's workspace.mel) holds the project's name, its folder rules
+// and its build settings, so they can be committed with the project's source.
 class DevkitProject final : public QObject
 {
   Q_OBJECT
@@ -20,16 +24,41 @@ public:
 
   static constexpr const char* SETTINGS_FILE_NAME = ".dolphin-devkit.ini";
 
+  // A folder the project definition maps to a role, like Maya's file rules.
+  struct FolderRule
+  {
+    const char* key;          // [folders] key in the project definition
+    const char* default_dir;  // relative to the project folder
+    QString label;
+    QString description;
+  };
+  static const std::vector<FolderRule>& GetFolderRules();
+
   bool IsOpen() const { return !m_path.isEmpty(); }
   const QString& GetPath() const { return m_path; }
+  // The project's display name: the name in the project definition, else the folder's name.
   QString GetName() const;
+  void SetName(const QString& name);
+  bool HasDefinition() const;
 
-  // Opens |path| as the current project (remembered across restarts). Returns false if it isn't a
-  // directory.
+  // Opens |path| as the current project (remembered across restarts and added to the recent
+  // projects). Returns false if it isn't a directory.
   bool Open(const QString& path);
+  // Maya's "Set Project": opens |path| and, if it has no project definition yet, writes one with
+  // the default folder rules and build settings.
+  bool SetProject(const QString& path);
   void Close();
   // Re-opens the project that was open when Dolphin last exited, if it still exists.
   void RestoreLastProject();
+
+  // Most recent first; folders that no longer exist are left out.
+  static QStringList GetRecentProjects();
+  void ClearRecentProjects();
+
+  // A folder rule's folder, relative to the project (as set) or absolute.
+  QString GetFolder(const char* key) const;
+  QString GetFolderPath(const char* key) const;
+  void SetFolder(const char* key, const QString& dir);
 
   // If |file| (e.g. a DOL/ELF being booted) lives inside a homebrew project, returns that
   // project's root folder: the nearest parent with a .dolphin-devkit.ini, or failing that a
@@ -62,6 +91,7 @@ public:
 
 signals:
   void ProjectChanged();
+  void RecentProjectsChanged();
 
 private:
   QString ReadSetting(const QString& key, const QString& fallback) const;

@@ -165,6 +165,7 @@ private:
   void CreateProjectMenu();
   void UpdateProjectActions();
   void UpdateWindowTitle();
+  void QueueDefaultDockSizes();
   void NewProject();
   void OpenProject();
   void OpenProjectForExecutable(const QString& executable_path);
@@ -300,6 +301,9 @@ private:
   // Every dock panel and the Font Awesome icon it shows in its title bar and tab.
   std::vector<std::pair<QDockWidget*, std::string_view>> m_dock_icons;
   bool m_dock_tab_icon_refresh_queued = false;
+  // Set by Reset Editor Layout: re-apply the default dock proportions when the window resizes.
+  bool m_keep_default_dock_sizes = false;
+  bool m_default_dock_sizes_queued = false;
   bool m_editor_layout_active = false;
   ToolBar* m_tool_bar;
   MenuBar* m_menu_bar;

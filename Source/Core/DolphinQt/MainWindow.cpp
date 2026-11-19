@@ -1409,8 +1409,20 @@ void MainWindow::ResetEditorLayout()
   settings.SetBreakpointsVisible(true);
   settings.RefreshWidgetVisibility();
 
-  // Sizes can only be applied once the window has its real geometry.
+  // Sizes can only be applied once the window has its real geometry, which on first launch comes
+  // after this runs (the window is shown, then maximized or restored by the window manager). Keep
+  // the default proportions on every resize until the user drags a dock separator themselves.
+  m_keep_default_dock_sizes = true;
+  QueueDefaultDockSizes();
+}
+
+void MainWindow::QueueDefaultDockSizes()
+{
+  if (m_default_dock_sizes_queued)
+    return;
+  m_default_dock_sizes_queued = true;
   QTimer::singleShot(0, this, [this] {
+    m_default_dock_sizes_queued = false;
     if (!m_editor_layout_active)
       return;
 
@@ -2477,6 +2489,16 @@ void MainWindow::UpdateScreenSaverInhibition()
 
 bool MainWindow::eventFilter(QObject* object, QEvent* event)
 {
+  if (object == this && m_keep_default_dock_sizes)
+  {
+    // Dock separators aren't widgets, so a press on the main window itself is the user starting
+    // to resize the docks: from then on, their sizes are the user's.
+    if (event->type() == QEvent::MouseButtonPress)
+      m_keep_default_dock_sizes = false;
+    else if (event->type() == QEvent::Resize && m_editor_layout_active)
+      QueueDefaultDockSizes();
+  }
+
   if (event->type() == QEvent::Close)
   {
     if (RequestStop() && object == this)

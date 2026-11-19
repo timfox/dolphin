@@ -7,14 +7,17 @@
 #include <deque>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <QColor>
 #include <QElapsedTimer>
+#include <QByteArray>
 #include <QObject>
 #include <QString>
 
 #include "Common/CommonTypes.h"
+#include "DolphinQt/Debugger/XashMemory.h"
 
 class QTimer;
 struct BootParameters;
@@ -58,6 +61,9 @@ struct MemoryRegion
   u32 end = 0;    // Exclusive
   std::optional<u64> used;  // Bytes in use, where that's meaningful (heaps, stacks)
   QString note;
+  // Lies inside another region (a static object in .bss, a heap in the arena): shown, but not
+  // counted again in totals.
+  bool nested = false;
 
   u32 Size() const { return end - start; }
   bool Contains(u32 address) const { return address >= start && address < end; }
@@ -103,6 +109,29 @@ struct HeapInfo
   bool current = false;
 };
 
+// One allocated OSAlloc block (cell), including its header.
+struct HeapBlock
+{
+  u32 address = 0;
+  u32 size = 0;
+  int heap = 0;
+  double first_seen = 0;  // Analyzer time the block was first seen
+};
+
+// One stay on a map in a Xash3D game, for comparing memory across map changes.
+struct XashMapVisit
+{
+  QString map;
+  double entered = 0;
+  double last_seen = 0;
+  u64 zone_at_entry = 0;
+  u64 zone_now = 0;
+  u64 zone_peak = 0;
+  u64 heap_now = 0;
+  u64 aram_now = 0;
+  std::unordered_map<QString, u64> pools;  // Zone bytes per pool name, latest sample
+};
+
 struct MemoryUsageSample
 {
   double time = 0;  // Seconds since the analyzer started sampling this session
@@ -110,6 +139,7 @@ struct MemoryUsageSample
   std::array<u64, MEMORY_SPACE_COUNT> written{};  // Bytes in pages written since last sample
   std::optional<u64> heap_allocated;
   std::optional<u64> heap_size;
+  std::optional<u64> zone_allocated;  // Xash3D zone pools
   u64 stack_peak = 0;
 };
 
@@ -134,7 +164,21 @@ public:
   // Reads the section layout of what's being booted. Call before BootCore() takes |params|.
   static std::optional<ExecutableLayout> ReadExecutableLayout(const BootParameters& params);
   static std::optional<ExecutableLayout> ReadExecutableLayout(const std::string& path);
+  static std::string GetBootPath(const BootParameters& params);
   void SetExecutableLayout(std::optional<ExecutableLayout> layout);
+  // Where the running program came from; used to look for an unstripped ELF with symbols.
+  void SetBootPath(const std::string& path, const std::string& game_id);
+
+  // Engine symbols (Xash3D). Returns an error message, or an empty string on success.
+  QString LoadEngineSymbols(const QString& elf_path);
+  void UnloadEngineSymbols();
+  QString GetEngineSymbolsPath() const;
+  QString GetEngineSymbolsStatus() const { return m_engine_symbols_status; }
+  const std::optional<Xash::Snapshot>& GetXash() const { return m_xash; }
+  Xash::Reader& GetXashReader() { return m_xash_reader; }
+  const std::vector<XashMapVisit>& GetXashMapVisits() const { return m_xash_visits; }
+  // Zone bytes per pool name when the mark was set.
+  const std::unordered_map<QString, u64>& GetXashMarkPools() const { return m_xash_mark_pools; }
   const std::optional<ExecutableLayout>& GetExecutableLayout() const { return m_executable; }
 
   // Sampling only runs while at least one view wants it.
@@ -162,6 +206,23 @@ public:
   const std::vector<ThreadStackInfo>& GetStacks() const { return m_stacks; }
   const std::vector<HeapInfo>& GetHeaps() const { return m_heaps; }
   bool HasHeapSymbols() const { return m_heap_symbols; }
+  // Allocated blocks across all heaps (capped at MAX_TRACKED_BLOCKS).
+  const std::vector<HeapBlock>& GetBlocks() const { return m_blocks; }
+  bool AreBlocksTruncated() const { return m_blocks_truncated; }
+  static constexpr size_t MAX_TRACKED_BLOCKS = 50000;
+
+  // A mark is a point in time to compare against: blocks allocated after it and still alive are
+  // "new since mark", which is how leaks show up.
+  void SetMark();
+  void ClearMark();
+  const std::optional<MemoryUsageSample>& GetMark() const { return m_mark; }
+  bool IsNewSinceMark(const HeapBlock& block) const
+  {
+    return m_mark && block.first_seen > m_mark->time;
+  }
+  double GetTime() const { return m_time; }
+  // Reads up to |length| bytes of MEM1/MEM2 at |address| (empty if it's not RAM).
+  QByteArray PeekBytes(u32 address, u32 length) const;
   const std::deque<MemoryUsageSample>& GetHistory() const { return m_history; }
 
 signals:
@@ -191,6 +252,10 @@ private:
   void ReadStacks(Core::System& system);
   void ReadHeaps(Core::System& system);
   void ColourPages(SpaceState& state);
+  void SampleXash(Core::System& system);
+  void TryEngineSymbolCandidates(Core::System& system);
+  void BuildXashMem1Regions();
+  void BuildXashAramRegions();
 
   std::optional<u32> ReadU32(Core::System& system, u32 address) const;
   std::optional<u32> ReadSymbolU32(Core::System& system, const char* name) const;
@@ -202,6 +267,10 @@ private:
   std::array<SpaceState, MEMORY_SPACE_COUNT> m_spaces;
   std::vector<ThreadStackInfo> m_stacks;
   std::vector<HeapInfo> m_heaps;
+  std::vector<HeapBlock> m_blocks;
+  bool m_blocks_truncated = false;
+  std::unordered_map<u64, double> m_block_first_seen;
+  std::optional<MemoryUsageSample> m_mark;
   // Per space, pages covered by allocated heap blocks.
   std::array<std::vector<u8>, MEMORY_SPACE_COUNT> m_heap_page_allocated;
   bool m_heap_symbols = false;
@@ -212,4 +281,14 @@ private:
   QElapsedTimer m_clock;
   qint64 m_last_ms = 0;
   std::deque<MemoryUsageSample> m_history;
+
+  Xash::Reader m_xash_reader;
+  std::optional<Xash::Snapshot> m_xash;
+  std::vector<XashMapVisit> m_xash_visits;
+  std::unordered_map<QString, u64> m_xash_mark_pools;
+  std::string m_boot_path;
+  std::string m_game_id;
+  std::vector<ElfSymbolTable> m_symbol_candidates;
+  bool m_candidates_searched = false;
+  QString m_engine_symbols_status;
 };

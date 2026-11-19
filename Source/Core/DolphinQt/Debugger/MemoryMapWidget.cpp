@@ -474,6 +474,8 @@ void MemoryMapWidget::UpdateSummary()
     u64 program = 0;
     for (const MemoryRegion& region : m_analyzer->GetRegions(space))
     {
+      if (region.nested)
+        continue;
       if (region.kind == MemoryRegionKind::Text || region.kind == MemoryRegionKind::Data ||
           region.kind == MemoryRegionKind::Bss)
       {
@@ -484,7 +486,7 @@ void MemoryMapWidget::UpdateSummary()
       text += tr(" · program %1").arg(FormatBytes(program));
     for (const MemoryRegion& region : m_analyzer->GetRegions(space))
     {
-      if (region.kind == MemoryRegionKind::Arena)
+      if (region.kind == MemoryRegionKind::Arena && !region.nested)
         text += tr(" · arena %1").arg(FormatBytes(region.Size()));
     }
   }

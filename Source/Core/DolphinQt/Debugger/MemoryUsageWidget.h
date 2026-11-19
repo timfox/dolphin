@@ -9,7 +9,9 @@
 #include "Common/CommonTypes.h"
 #include "DolphinQt/Debugger/MemoryAnalyzer.h"
 
+class QCheckBox;
 class QComboBox;
+class QPushButton;
 class QLabel;
 class QStackedWidget;
 class QTableWidget;
@@ -56,6 +58,7 @@ private:
   void UpdateStats();
   void UpdateStacks();
   void UpdateHeaps();
+  void UpdateBlocks();
   MemorySpace CurrentSpace() const;
 
   MemoryAnalyzer* m_analyzer;
@@ -78,4 +81,11 @@ private:
   QTableWidget* m_stack_table;
   QTableWidget* m_heap_table;
   QLabel* m_heap_hint;
+
+  QTableWidget* m_block_table;
+  QLabel* m_block_summary;
+  QPushButton* m_mark_button;
+  QPushButton* m_clear_mark_button;
+  QCheckBox* m_new_only;
+  bool m_blocks_sized = false;
 };

@@ -248,6 +248,62 @@ void Shutdown()
   s_after_frame_event.reset();
 }
 
+std::vector<Hint> GetHints(const FrameSample& s)
+{
+  std::vector<Hint> hints;
+  const auto warn = [&](std::string text) {
+    hints.push_back({Hint::Severity::Warning, std::move(text)});
+  };
+  const auto info = [&](std::string text) {
+    hints.push_back({Hint::Severity::Info, std::move(text)});
+  };
+
+  constexpr double BUDGET_60_MS = 1000.0 / 60.0;
+  if (s.frame_ms > BUDGET_60_MS * 1.05)
+    warn(fmt::format("Frame took {:.1f} ms, over the 16.7 ms budget for 60 Hz.", s.frame_ms));
+  if (s.efb_copies_to_ram != 0)
+  {
+    warn(fmt::format("{} EFB cop{} to RAM: the CPU waits for the GPU on each one. Keep copies "
+                     "texture-only where the CPU doesn't read them.",
+                     s.efb_copies_to_ram, s.efb_copies_to_ram == 1 ? "y" : "ies"));
+  }
+  if (s.stats.num_efb_peeks != 0)
+  {
+    warn(fmt::format("{} EFB peek{} (CPU reads of the framebuffer) stall the pipeline.",
+                     s.stats.num_efb_peeks, s.stats.num_efb_peeks == 1 ? "" : "s"));
+  }
+  if (s.shaders_created != 0)
+  {
+    warn(fmt::format("{} shader{} compiled this frame, which can stutter. Reusing TEV setups "
+                     "keeps the shader count down.",
+                     s.shaders_created, s.shaders_created == 1 ? "" : "s"));
+  }
+  const u32 draws = static_cast<u32>(s.stats.num_draw_calls);
+  if (draws >= 20 && s.pipeline_changes * 10 >= draws * 8)
+  {
+    info(fmt::format("{} of {} draws changed GX state. Sorting draws by material batches more "
+                     "geometry per state change.",
+                     s.pipeline_changes, draws));
+  }
+  u32 deep_tev = 0;
+  for (std::size_t i = 8; i < s.tev_stage_histogram.size(); ++i)
+    deep_tev += s.tev_stage_histogram[i];
+  if (deep_tev != 0)
+  {
+    info(fmt::format("{} draw{} used more than 8 TEV stages, which costs fill rate on hardware.",
+                     deep_tev, deep_tev == 1 ? "" : "s"));
+  }
+  if (s.textures_uploaded > 16)
+    info(fmt::format("{} textures were decoded and uploaded this frame.", s.textures_uploaded));
+  if (draws != 0 && s.vertices / draws < 6 && draws >= 200)
+  {
+    info(fmt::format("{} draws averaging {} vertices each. Merging small draws reduces "
+                     "per-draw overhead.",
+                     draws, s.vertices / draws));
+  }
+  return hints;
+}
+
 void SetEnabled(bool enabled)
 {
   s_enabled.store(enabled, std::memory_order_relaxed);
@@ -352,6 +408,8 @@ void OnDraw(PrimitiveType primitive, u32 num_vertices, u32 num_indices, BitSet32
   draw.culled = culled;
   draw.pipeline_changed = pipeline_changed;
   draw.textures = DescribeTextures(used_textures);
+  for (const u32 i : used_textures)
+    draw.texture_addresses.push_back(bpmem.tex.GetUnit(i).texImage3.image_base << 5);
   draw.blend = DescribeBlend();
   draw.depth = DescribeDepth();
   draw.cull = fmt::format("{}", bpmem.genMode.cull_mode);

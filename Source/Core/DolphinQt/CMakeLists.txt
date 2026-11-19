@@ -252,6 +252,10 @@ add_executable(dolphin-emu
   Debugger/MemoryMapWidget.h
   Debugger/MemoryUsageWidget.cpp
   Debugger/MemoryUsageWidget.h
+  Debugger/XashMemory.cpp
+  Debugger/XashMemory.h
+  Debugger/XashMemoryWidget.cpp
+  Debugger/XashMemoryWidget.h
   Debugger/MemoryViewWidget.cpp
   Debugger/MemoryViewWidget.h
   Debugger/MemoryWidget.cpp

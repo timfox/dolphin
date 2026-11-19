@@ -60,6 +60,7 @@ class MappingWindow;
 class MemoryAnalyzer;
 class MemoryMapWidget;
 class MemoryUsageWidget;
+class XashMemoryWidget;
 class MemoryWidget;
 class MenuBar;
 class NetPlayDialog;
@@ -301,6 +302,7 @@ private:
   MemoryAnalyzer* m_memory_analyzer = nullptr;
   MemoryMapWidget* m_memory_map_widget = nullptr;
   MemoryUsageWidget* m_memory_usage_widget = nullptr;
+  XashMemoryWidget* m_xash_memory_widget = nullptr;
   BuildOutputWidget* m_build_output_widget = nullptr;
   DiagnosticsWidget* m_warnings_widget = nullptr;
   DiagnosticsWidget* m_errors_widget = nullptr;

@@ -34,6 +34,7 @@
 #include "VideoCommon/PerfQueryBase.h"
 #include "VideoCommon/PixelShaderGen.h"
 #include "VideoCommon/PixelShaderManager.h"
+#include "VideoCommon/RenderProfiler.h"
 #include "VideoCommon/Statistics.h"
 #include "VideoCommon/TextureCacheBase.h"
 #include "VideoCommon/VertexLoaderManager.h"
@@ -663,11 +664,19 @@ void VertexManagerBase::Flush()
       }
     }
 
+    RenderProfiler::OnDraw(m_current_primitive_type, m_index_generator.GetNumVerts(), num_indices,
+                           used_textures, m_current_pipeline_object, skip);
+
     // Even if we skip the draw, emulated state should still be impacted
     OnDraw();
 
     // The EFB cache is now potentially stale.
     g_framebuffer_manager->FlagPeekCacheAsOutOfDate();
+  }
+  else
+  {
+    RenderProfiler::OnDraw(m_current_primitive_type, m_index_generator.GetNumVerts(),
+                           m_index_generator.GetIndexLen(), used_textures, nullptr, true);
   }
 
   if (xfmem.numTexGen.numTexGens != bpmem.genMode.numtexgens)

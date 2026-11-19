@@ -146,6 +146,8 @@ add_library(videocommon
   PostProcessing.h
   Present.cpp
   Present.h
+  RenderProfiler.cpp
+  RenderProfiler.h
   RenderState.cpp
   RenderState.h
   Resources/CustomResourceManager.cpp

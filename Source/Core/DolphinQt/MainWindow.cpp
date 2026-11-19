@@ -1344,7 +1344,7 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     for (QDockWidget* dock : {static_cast<QDockWidget*>(m_build_output_widget),
                               static_cast<QDockWidget*>(m_warnings_widget),
                               static_cast<QDockWidget*>(m_errors_widget),
-                              static_cast<QDockWidget*>(m_memory_usage_widget)})
+                              static_cast<QDockWidget*>(m_memory_usage_widget),
                               static_cast<QDockWidget*>(m_render_profiler_widget),
                               static_cast<QDockWidget*>(m_frame_capture_widget)})
     {
@@ -1404,21 +1404,16 @@ void MainWindow::ResetEditorLayout()
   // Arrangement modelled on the devkit concept: library on the left, the game view in the middle
   // tabbed with the big inspection tools, Target Tools and the Property Inspector on the right,
   // and the console (log) tabbed with the CPU state panels along the bottom.
-  QDockWidget* const center_tabs[] = {m_memory_map_widget, m_memory_widget, m_code_widget,
-                                      m_jit_widget, m_assembler_widget};
-  QDockWidget* const center_tabs[] = {m_memory_widget, m_code_widget, m_jit_widget,
-                                      m_assembler_widget, m_frame_capture_widget};
+  QDockWidget* const center_tabs[] = {m_memory_map_widget, m_memory_widget,   m_code_widget,
+                                      m_jit_widget,        m_assembler_widget, m_frame_capture_widget};
   // Tall panels (threads, network, log config) go in the full-height right column so the default
   // layout fits on a 1080p screen.
   QDockWidget* const inspector_tabs[] = {m_property_inspector_widget, m_thread_widget,
                                          m_network_widget, m_log_config_widget};
-  QDockWidget* const console_tabs[] = {m_log_widget,          m_build_output_widget,
-                                       m_warnings_widget,     m_errors_widget,
-                                       m_memory_usage_widget, m_register_widget,
-                                       m_watch_widget,        m_breakpoint_widget};
   QDockWidget* const console_tabs[] = {
-      m_log_widget,    m_build_output_widget,    m_warnings_widget, m_errors_widget,
-      m_render_profiler_widget, m_register_widget, m_watch_widget,  m_breakpoint_widget};
+      m_log_widget,           m_build_output_widget, m_warnings_widget,
+      m_errors_widget,        m_render_profiler_widget, m_memory_usage_widget,
+      m_register_widget,      m_watch_widget,        m_breakpoint_widget};
 
   for (QDockWidget* dock :
        {static_cast<QDockWidget*>(m_game_library_dock), static_cast<QDockWidget*>(m_game_view_widget),
@@ -1435,7 +1430,7 @@ void MainWindow::ResetEditorLayout()
         static_cast<QDockWidget*>(m_warnings_widget),
         static_cast<QDockWidget*>(m_errors_widget),
         static_cast<QDockWidget*>(m_memory_map_widget),
-        static_cast<QDockWidget*>(m_memory_usage_widget)})
+        static_cast<QDockWidget*>(m_memory_usage_widget),
         static_cast<QDockWidget*>(m_render_profiler_widget),
         static_cast<QDockWidget*>(m_frame_capture_widget)})
   {
@@ -1465,7 +1460,7 @@ void MainWindow::ResetEditorLayout()
                             static_cast<QDockWidget*>(m_warnings_widget),
                             static_cast<QDockWidget*>(m_errors_widget),
                             static_cast<QDockWidget*>(m_memory_map_widget),
-                            static_cast<QDockWidget*>(m_memory_usage_widget)})
+                            static_cast<QDockWidget*>(m_memory_usage_widget),
                             static_cast<QDockWidget*>(m_render_profiler_widget),
                             static_cast<QDockWidget*>(m_frame_capture_widget)})
   {
@@ -1571,12 +1566,11 @@ void MainWindow::RestoreLayoutState()
     if (state.isEmpty() || !restoreState(state))
     {
       ResetEditorLayout();
-    else
-      PlaceNewEditorPanels();
     }
     else
     {
       // Panels added after the layout was saved go where the default layout puts them.
+      PlaceNewEditorPanels();
       if (!restoreDockWidget(m_render_profiler_widget))
         tabifyDockWidget(m_log_widget, m_render_profiler_widget);
       if (!restoreDockWidget(m_frame_capture_widget))

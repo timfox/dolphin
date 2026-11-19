@@ -181,6 +181,63 @@ std::vector<u8> GsWad()
   return data;
 }
 
+// A GoldSrc studio model: 300 bytes standing in for bones and meshes, then the skins.
+std::vector<u8> GsStudio(const std::vector<std::tuple<std::string, u32, u32, u32, int>>& textures,
+                         u32 skinref, u32 families)
+{
+  std::vector<u8> body;
+  for (int i = 0; i < 300; i++)
+    body.push_back(static_cast<u8>((i * 31) & 255));
+  const u32 nt = static_cast<u32>(textures.size());
+  const u32 texidx = 244 + 300;
+  const u32 skinidx = texidx + nt * 80;
+  std::vector<u8> skin;
+  for (u32 i = 0; i < skinref * families; i++)
+    Put(&skin, (i * 3) % nt, 2);
+  u32 cursor = skinidx + static_cast<u32>(skin.size());
+  std::vector<u8> table, blobs;
+  for (const auto& [name, flags, w, h, seed] : textures)
+  {
+    std::vector<u8> raw_name(64, 0);
+    std::copy(name.begin(), name.end(), raw_name.begin());
+    Append(&table, raw_name);
+    for (u32 v : {flags, w, h, cursor})
+      Put(&table, v);
+    const size_t before = blobs.size();
+    Append(&blobs, GsIndices(w, h, seed));
+    Append(&blobs, GsPalette(seed));
+    cursor += static_cast<u32>(blobs.size() - before);
+  }
+  std::vector<u8> data(244, 0);
+  std::memcpy(data.data(), "IDST", 4);
+  data[4] = 10;
+  const std::string model_name = "models/test.mdl";
+  std::copy(model_name.begin(), model_name.end(), data.begin() + 8);
+  data[140] = 3;
+  data[164] = 2;
+  const u32 fields[] = {nt, texidx, skinidx + static_cast<u32>(skin.size()), skinref, families,
+                        skinidx};
+  for (int f = 0; f < 6; f++)
+    for (int i = 0; i < 4; i++)
+      data[180 + f * 4 + i] = static_cast<u8>(fields[f] >> (8 * i));
+  Append(&data, body);
+  Append(&data, table);
+  Append(&data, skin);
+  Append(&data, blobs);
+  const u32 length = static_cast<u32>(data.size());
+  for (int i = 0; i < 4; i++)
+    data[72 + i] = static_cast<u8>(length >> (8 * i));
+  return data;
+}
+
+std::vector<u8> GsRifle()
+{
+  return GsStudio({{"stock.bmp", 0x43, 200, 100, 1},
+                   {"chrome.bmp", 0x2, 64, 64, 2},
+                   {"mask.bmp", 0x40, 96, 130, 3}},
+                  3, 2);
+}
+
 // A BSP v30 map that uses "brick" from its own texture lump and "odd" from test.wad.
 std::vector<u8> GsMap()
 {
@@ -282,6 +339,16 @@ TEST(GxBake, GoldSrcMatchesPythonTool)
   EXPECT_FALSE(GxBake::LeanHlSprite(odd).has_value());
   EXPECT_EQ(Md5Of(odd), "8ba273c3a8bd29df2e88c62e2b0c985e");
 
+  const auto lean = GxBake::LeanStudioMesh(GsRifle());
+  ASSERT_TRUE(lean.has_value());
+  EXPECT_EQ(Md5Of(*lean), "b2464288ac9b8165916e0d03355ecfc1");
+  const auto skins = GxBake::StudioSkinCompanion(GsRifle());
+  ASSERT_TRUE(skins.has_value());
+  EXPECT_EQ(Md5Of(*skins), "8144496dddc236e77216a18184c54067");
+  const auto plain_skins = GxBake::StudioSkinCompanion(GsStudio({{"a.bmp", 0, 32, 16, 4}}, 0, 0));
+  ASSERT_TRUE(plain_skins.has_value());
+  EXPECT_EQ(Md5Of(*plain_skins), "49242b00db35a41a505c54281a656f2c");
+
   // Quake sprites and WAD2 files are left to the Python tool.
   std::vector<u8> quake_sprite = GsSprite(16, 16, 0, 0, 0, 1);
   quake_sprite[4] = 1;
@@ -320,6 +387,12 @@ TEST(GxBake, BakesAndUpdatesLive)
   write_bytes(assets + "valve/test.wad", GsWad());
   write_bytes(assets + "valve/sprites/cross.spr", GsSprite(64, 32, 3, -31, 15, 7));
   write_bytes(assets + "valve/maps/e2e.bsp", GsMap());
+  write_bytes(assets + "valve/models/rifle.mdl", GsRifle());
+  {
+    std::vector<u8> sequences = GsRifle();
+    std::memcpy(sequences.data(), "IDSQ", 4);
+    write_bytes(assets + "valve/models/rifle01.mdl", sequences);
+  }
 
   GxBake::AssetBaker baker(assets);
   auto files = baker.Bake();
@@ -335,6 +408,11 @@ TEST(GxBake, BakesAndUpdatesLive)
   ASSERT_NE(find("valve/sprites/cross.spr"), files.end());
   ASSERT_NE(find("valve/maps/e2e.bsp"), files.end());
   ASSERT_NE(find("valve/media/wt_e2e.gct"), files.end());
+  ASSERT_NE(find("valve/models/rifle.mdl"), files.end());
+  ASSERT_NE(find("valve/models/rifle01.mdl"), files.end());
+  ASSERT_NE(find("valve/gc_studio/rifle.mdl"), files.end());
+  ASSERT_NE(find("valve/gc_studio/riflet.mdl"), files.end());
+  EXPECT_EQ(find("valve/gc_studio/rifle01.mdl"), files.end());  // sequence groups stay as they are
   {
     std::string wt;
     ASSERT_TRUE(File::ReadFileToString(find("valve/media/wt_e2e.gct")->host_path, wt));

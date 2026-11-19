@@ -9,10 +9,11 @@
 //   <game>/files/...          the disc, as before
 //   <game>/assets/valve/...   GxBake sources; outputs are added under files/valve/
 //
-// PNG/TGA/BMP textures and skies, PCM WAV audio, Half-Life sprites, WAD3 texture packs and BSP v30
-// world texture packs and skies are converted natively (byte-identical to the Python tool).
-// Everything else GxBake reads (models, Quake files, Source/Source 2 assets, other image and audio
-// formats) is handed to the GxBake Python tool when it is installed. Results are
+// PNG/TGA/BMP textures and skies, PCM WAV audio and GoldSrc content (Half-Life sprites, WAD3
+// texture packs, BSP v30 world texture packs and skies, studio models) are converted natively,
+// byte-identical to the Python tool. Everything else GxBake reads (other model formats, Quake
+// files, Source/Source 2 assets, other image and audio formats) is handed to the GxBake Python
+// tool when it is installed. Results are
 // cached per source file, so only what changed is converted again.
 
 #pragma once

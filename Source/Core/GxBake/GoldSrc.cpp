@@ -386,6 +386,177 @@ std::optional<std::vector<std::pair<std::string, int64_t>>> MiptexOffsets(
 }
 }  // namespace
 
+namespace
+{
+bool IsStudio(const std::vector<uint8_t>& d)
+{
+  return d.size() >= 4 &&
+         (std::memcmp(d.data(), "IDST", 4) == 0 || std::memcmp(d.data(), "IDSQ", 4) == 0);
+}
+
+void Set32(std::vector<uint8_t>* out, size_t p, int32_t v)
+{
+  for (int i = 0; i < 4; i++)
+    (*out)[p + i] = static_cast<uint8_t>(static_cast<uint32_t>(v) >> (8 * i));
+}
+}  // namespace
+
+bool StudioNeedsPython(const std::vector<uint8_t>& d)
+{
+  if (d.size() < 8)
+    return false;
+  const int32_t version = S32(d, 4);
+  if (std::memcmp(d.data(), "IDST", 4) == 0)
+    return version >= 44 && version <= 49;
+  return std::memcmp(d.data(), "IDPO", 4) == 0 && version == 6;
+}
+
+std::optional<std::vector<uint8_t>> LeanStudioMesh(const std::vector<uint8_t>& raw)
+{
+  if (raw.size() < 192 || !IsStudio(raw))
+    return std::nullopt;
+  const int64_t size = static_cast<int64_t>(raw.size());
+  const int32_t textureindex = S32(raw, 184);
+  if (textureindex <= 244 || textureindex > size)
+  {
+    // No usable texture cursor: keep the whole file (up to its stated length).
+    int64_t length = S32(raw, 72);
+    if (length <= 0 || length > size)
+      length = size;
+    return std::vector<uint8_t>(raw.begin(), raw.begin() + length);
+  }
+  // Cut at the textures and clear the texture counts, so loaders skip the skin blobs.
+  const int32_t cut = textureindex;
+  std::vector<uint8_t> out(raw.begin(), raw.begin() + cut);
+  Set32(&out, 72, cut);
+  Set32(&out, 180, 0);
+  Set32(&out, 184, 0);
+  Set32(&out, 188, 0);
+  // Skin reference tables often live after the textures; drop them when they were cut off.
+  if (S32(out, 200) >= cut)
+  {
+    Set32(&out, 192, 0);
+    Set32(&out, 196, 0);
+    Set32(&out, 200, 0);
+  }
+  return out;
+}
+
+std::optional<std::vector<uint8_t>> StudioSkinCompanion(const std::vector<uint8_t>& raw,
+                                                        int max_edge)
+{
+  if (raw.size() < 244 || !IsStudio(raw))
+    return std::nullopt;
+  const int64_t size = static_cast<int64_t>(raw.size());
+  const int32_t numtextures = S32(raw, 180);
+  const int32_t textureindex = S32(raw, 184);
+  int32_t numskinref = S32(raw, 192);
+  int32_t numskinfamilies = S32(raw, 196);
+  const int32_t skinindex = S32(raw, 200);
+  if (numtextures <= 0 || textureindex <= 0 ||
+      textureindex + static_cast<int64_t>(numtextures) * 80 > size)
+  {
+    return std::nullopt;
+  }
+
+  // mstudiotexture_t is 80 bytes; a skin is width * height indices and a 768-byte palette.
+  struct Texture
+  {
+    size_t header;
+    int32_t flags, width, height;
+    size_t pixels;
+  };
+  std::vector<Texture> textures;
+  for (int32_t i = 0; i < numtextures; i++)
+  {
+    const size_t off = static_cast<size_t>(textureindex) + static_cast<size_t>(i) * 80;
+    const int32_t flags = S32(raw, off + 64), width = S32(raw, off + 68);
+    const int32_t height = S32(raw, off + 72), index = S32(raw, off + 76);
+    if (width <= 0 || height <= 0 || index < 0 ||
+        index + static_cast<int64_t>(width) * height + 768 > size)
+    {
+      return std::nullopt;
+    }
+    textures.push_back({off, flags, width, height, static_cast<size_t>(index)});
+  }
+
+  std::vector<uint8_t> skin_bytes;
+  if (numskinref > 0 && numskinfamilies > 0 && skinindex > 0)
+  {
+    const int64_t skin_size = static_cast<int64_t>(numskinref) * numskinfamilies * 2;
+    if (skinindex + skin_size <= size)
+      skin_bytes.assign(raw.begin() + skinindex, raw.begin() + skinindex + skin_size);
+    else
+      numskinref = numskinfamilies = 0;
+  }
+  else
+  {
+    numskinref = numskinfamilies = 0;
+  }
+
+  // Header, texture structs and skin references, then the downsampled skins packed tightly.
+  constexpr size_t HEADER_SIZE = 244;  // sizeof(studiohdr_t) on GoldSrc
+  const size_t tex_table = HEADER_SIZE;
+  const size_t skin_table = tex_table + textures.size() * 80;
+  size_t pix_cursor = skin_table + skin_bytes.size();
+  std::vector<uint8_t> out(pix_cursor, 0);
+  std::memcpy(out.data(), "IDST", 4);
+  Set32(&out, 4, 10);  // STUDIO_VERSION
+  std::copy(raw.begin() + 8, raw.begin() + 72, out.begin() + 8);  // model name
+
+  for (size_t i = 0; i < textures.size(); i++)
+  {
+    const Texture& t = textures[i];
+    int nw = t.width, nh = t.height;
+    while (nw > max_edge || nh > max_edge)
+    {
+      nw = std::max(1, nw / 2);
+      nh = std::max(1, nh / 2);
+    }
+    const uint8_t* pixels = raw.data() + t.pixels;
+    std::vector<uint8_t> blob;
+    if (nw == t.width && nh == t.height)
+    {
+      blob.assign(pixels, pixels + static_cast<size_t>(t.width) * t.height);
+    }
+    else
+    {
+      blob.resize(static_cast<size_t>(nw) * nh);
+      for (int y = 0; y < nh; y++)
+      {
+        const int64_t sy = std::min<int64_t>(t.height - 1, (static_cast<int64_t>(y) * t.height) / nh);
+        for (int x = 0; x < nw; x++)
+        {
+          const int64_t sx = std::min<int64_t>(t.width - 1, (static_cast<int64_t>(x) * t.width) / nw);
+          blob[static_cast<size_t>(y) * nw + x] = pixels[sy * t.width + sx];
+        }
+      }
+    }
+    const uint8_t* palette = pixels + static_cast<size_t>(t.width) * t.height;
+    blob.insert(blob.end(), palette, palette + 768);
+
+    const size_t off = tex_table + i * 80;
+    std::copy(raw.begin() + t.header, raw.begin() + t.header + 64, out.begin() + off);
+    // Drop chrome/additive; keep MASKED (0x40) so the colour key still applies.
+    Set32(&out, off + 64, t.flags & 0x40);
+    Set32(&out, off + 68, nw);
+    Set32(&out, off + 72, nh);
+    Set32(&out, off + 76, static_cast<int32_t>(pix_cursor));
+    out.insert(out.end(), blob.begin(), blob.end());
+    pix_cursor += blob.size();
+  }
+  std::copy(skin_bytes.begin(), skin_bytes.end(), out.begin() + skin_table);
+
+  Set32(&out, 72, static_cast<int32_t>(out.size()));  // length
+  Set32(&out, 180, numtextures);
+  Set32(&out, 184, static_cast<int32_t>(tex_table));
+  Set32(&out, 188, static_cast<int32_t>(skin_table + skin_bytes.size()));
+  Set32(&out, 192, numskinref);
+  Set32(&out, 196, numskinfamilies);
+  Set32(&out, 200, skin_bytes.empty() ? 0 : static_cast<int32_t>(skin_table));
+  return out;
+}
+
 std::optional<BspInfo> ReadBspInfo(const std::vector<uint8_t>& bsp)
 {
   if (bsp.size() < 4 || S32(bsp, 0) != 30)

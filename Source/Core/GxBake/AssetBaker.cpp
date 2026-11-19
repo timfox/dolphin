@@ -9,6 +9,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdlib>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -657,10 +658,10 @@ struct AssetBaker::Impl
       {
         s.kind = Kind::Python;
       }
-      else if (s.ext == ".spr" || s.ext == ".wad" || s.ext == ".bsp")
+      else if (s.ext == ".spr" || s.ext == ".wad" || s.ext == ".bsp" || s.ext == ".mdl")
       {
-        // Half-Life sprites, WAD3 files and BSP v30 maps bake natively; Quake and Source ones
-        // turn out to need the Python tool once their header is read.
+        // Half-Life sprites, WAD3 files, BSP v30 maps and studio models bake natively; Quake and
+        // Source ones turn out to need the Python tool once their header is read.
         s.kind = Kind::NativeGoldSrc;
       }
       else if (GOLDSRC_EXTS.contains(s.ext))
@@ -884,6 +885,21 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
       }
       if (!pack->empty())
         baked["media/" + s.stem + ".gct"] = *pack;
+    }
+    else if (s.ext == ".mdl")
+    {
+      if (StudioNeedsPython(*data))
+      {
+        s.kind = Kind::PythonAndPassthrough;  // Source or Quake model
+        continue;
+      }
+      // A sequence group (<name>01.mdl, "IDSQ") yields nothing; it still goes on the disc for
+      // the engine to read with its model.
+      const bool sequence_group = data->size() >= 4 && std::memcmp(data->data(), "IDSQ", 4) == 0;
+      if (const auto lean = sequence_group ? std::nullopt : LeanStudioMesh(*data))
+        baked["gc_studio/" + s.stem + ".mdl"] = *lean;
+      if (const auto skins = sequence_group ? std::nullopt : StudioSkinCompanion(*data))
+        baked["gc_studio/" + s.stem + "t.mdl"] = *skins;
     }
     else
     {

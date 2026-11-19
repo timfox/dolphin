@@ -7,6 +7,7 @@
 //   .wad  WAD3 texture pack: every miptex, qpic and font (core/gct.py build_wad_texture_pack)
 //   .bsp  BSP v30 world texture pack, from the map and the WADs it uses
 //         (core/gct.py build_world_texture_pack, collect_wads)
+//   .mdl  GoldSrc studio model: lean mesh and downsampled skin companion (core/studio.py)
 //
 // Outputs are byte-identical to the Python tool's, and the CMPR cache uses the same keys and file
 // layout (gct.py wt_encode_cached), so a cache folder can be shared with it. Quake sprites and
@@ -38,6 +39,18 @@ bool IsWad3(const std::vector<uint8_t>& data);
 // |cache_dir| (may be empty) holds encoded CMPR chains, shared with the Python tool's --cache.
 std::optional<std::vector<uint8_t>> BuildWadTexturePack(const std::vector<uint8_t>& wad,
                                                         const std::string& cache_dir);
+
+// True for a .mdl the Python tool imports itself: Source (IDST v44-49) and Quake (IDPO v6) models.
+bool StudioNeedsPython(const std::vector<uint8_t>& data);
+
+// gc_studio/<name>.mdl: the model cut before its embedded textures, so it fits the engine's studio
+// BSS. Empty when the file isn't a GoldSrc studio model.
+std::optional<std::vector<uint8_t>> LeanStudioMesh(const std::vector<uint8_t>& mdl);
+
+// gc_studio/<name>t.mdl: the model's skins, downsampled until neither side exceeds |max_edge|.
+// Empty when the model has no (readable) embedded skins.
+std::optional<std::vector<uint8_t>> StudioSkinCompanion(const std::vector<uint8_t>& mdl,
+                                                        int max_edge = 64);
 
 // What the baker needs from a GoldSrc (v30) map. Empty for Quake (v29) and Source maps, which
 // the Python tool converts.

@@ -46,6 +46,7 @@
 #include "VideoCommon/GraphicsModSystem/Runtime/GraphicsModManager.h"
 #include "VideoCommon/OpcodeDecoding.h"
 #include "VideoCommon/PixelShaderManager.h"
+#include "VideoCommon/RenderProfiler.h"
 #include "VideoCommon/Present.h"
 #include "VideoCommon/Resources/CustomResourceManager.h"
 #include "VideoCommon/ShaderCache.h"
@@ -2201,6 +2202,9 @@ void TextureCacheBase::CopyRenderTargetToTexture(
   bool copy_to_ram =
       !(is_xfb_copy ? g_ActiveConfig.bSkipXFBCopyToRam : g_ActiveConfig.bSkipEFBCopyToRam) ||
       !copy_to_vram;
+
+  RenderProfiler::OnEFBCopy(dstAddr, dstFormat, width, height, is_depth_copy, is_xfb_copy,
+                            copy_to_ram, copy_to_vram, scaleByHalf);
 
   // tex_w and tex_h are the native size of the texture in the GC memory.
   // The size scaled_* represents the emulated texture. Those differ

@@ -8,12 +8,14 @@
 		<file>box-archive.svg</file>
 		<file>broom.svg</file>
 		<file>camera.svg</file>
+		<file>chart-line.svg</file>
 		<file>circle-dot.svg</file>
 		<file>circle-play.svg</file>
 		<file>circle-xmark.svg</file>
 		<file>circle.svg</file>
 		<file>code.svg</file>
 		<file>compact-disc.svg</file>
+		<file>crosshairs.svg</file>
 		<file>cube.svg</file>
 		<file>cubes.svg</file>
 		<file>display.svg</file>
@@ -22,6 +24,7 @@
 		<file>file-audio.svg</file>
 		<file>file-circle-plus.svg</file>
 		<file>file-code.svg</file>
+		<file>file-export.svg</file>
 		<file>file-image.svg</file>
 		<file>file-lines.svg</file>
 		<file>file.svg</file>
@@ -55,6 +58,7 @@
 		<file>stop.svg</file>
 		<file>table-list.svg</file>
 		<file>terminal.svg</file>
+		<file>trash-can.svg</file>
 		<file>triangle-exclamation.svg</file>
 		<file>up-right-from-square.svg</file>
 		<file>video.svg</file>

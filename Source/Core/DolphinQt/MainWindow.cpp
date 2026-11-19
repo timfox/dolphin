@@ -109,6 +109,7 @@
 #include "DolphinQt/GameViewWidget.h"
 #include "DolphinQt/DevkitBuildPanels.h"
 #include "DolphinQt/DevkitPanels.h"
+#include "DolphinQt/DevkitRenderProfiler.h"
 #include "DolphinQt/DevkitProject.h"
 #include "DolphinQt/DevkitStatusBar.h"
 #include "DolphinQt/IconSet.h"
@@ -486,6 +487,8 @@ void MainWindow::CreateComponents()
   m_build_output_widget = new BuildOutputWidget(this);
   m_warnings_widget = new DiagnosticsWidget(BuildDiagnostic::Severity::Warning, this);
   m_errors_widget = new DiagnosticsWidget(BuildDiagnostic::Severity::Error, this);
+  m_render_profiler_widget = new RenderProfilerWidget(this);
+  m_frame_capture_widget = new FrameCaptureWidget(this);
 
   for (int i = 0; i < 4; i++)
   {
@@ -571,6 +574,8 @@ void MainWindow::CreateDevkitPanels()
       {m_errors_widget, "circle-xmark"},
       {m_target_tools_widget, "layer-group"},
       {m_property_inspector_widget, "table-list"},
+      {m_render_profiler_widget, "chart-line"},
+      {m_frame_capture_widget, "crosshairs"},
       {m_memory_widget, "memory"},
       {m_code_widget, "code"},
       {m_register_widget, "microchip"},
@@ -604,6 +609,18 @@ void MainWindow::CreateDevkitPanels()
                  [this] { ShowDebugPanel(m_watch_widget, &Settings::SetWatchVisible); });
   tools->AddTool("bolt", tr("JIT Profiler"), tr("Recompiled code blocks and profiling data."),
                  [this] { ShowDebugPanel(m_jit_widget, &Settings::SetJITVisible); });
+  tools->AddTool("chart-line", tr("Render Profiler"),
+                 tr("Frame time, draw calls, TEV usage and EFB copies for every frame."),
+                 [this] {
+                   m_render_profiler_widget->show();
+                   m_render_profiler_widget->raise();
+                 });
+  tools->AddTool("crosshairs", tr("Capture Frame"),
+                 tr("Capture every draw call and EFB copy of the next frame."), [this] {
+                   m_frame_capture_widget->show();
+                   m_frame_capture_widget->raise();
+                   m_frame_capture_widget->RequestCapture();
+                 });
   tools->AddTool("cubes", tr("GX / FIFO Player"),
                  tr("Record and replay graphics FIFO logs to inspect GX command streams."),
                  [this] { ShowFIFOPlayer(); });
@@ -621,6 +638,15 @@ void MainWindow::CreateDevkitPanels()
 
   connect(m_game_list, &GameList::SelectionChanged, m_property_inspector_widget,
           &PropertyInspectorWidget::SetGameFile);
+
+  // Render profiling.
+  connect(m_render_profiler_widget, &RenderProfilerWidget::CaptureFrameRequested, this, [this] {
+    m_frame_capture_widget->show();
+    m_frame_capture_widget->raise();
+    m_frame_capture_widget->RequestCapture();
+  });
+  connect(m_render_profiler_widget, &RenderProfilerWidget::FIFOPlayerRequested, this,
+          &MainWindow::ShowFIFOPlayer);
 
   // Project workflow: project tree, build output and diagnostics.
   connect(m_project_widget, &ProjectWidget::NewProjectRequested, this, &MainWindow::NewProject);
@@ -1284,7 +1310,9 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     addDockWidget(Qt::LeftDockWidgetArea, m_project_widget);
     for (QDockWidget* dock : {static_cast<QDockWidget*>(m_build_output_widget),
                               static_cast<QDockWidget*>(m_warnings_widget),
-                              static_cast<QDockWidget*>(m_errors_widget)})
+                              static_cast<QDockWidget*>(m_errors_widget),
+                              static_cast<QDockWidget*>(m_render_profiler_widget),
+                              static_cast<QDockWidget*>(m_frame_capture_widget)})
     {
       addDockWidget(Qt::BottomDockWidgetArea, dock);
     }
@@ -1307,6 +1335,8 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     removeDockWidget(m_build_output_widget);
     removeDockWidget(m_warnings_widget);
     removeDockWidget(m_errors_widget);
+    removeDockWidget(m_render_profiler_widget);
+    removeDockWidget(m_frame_capture_widget);
     m_devkit_status_bar->hide();
     m_log_widget->setWindowTitle(tr("Log"));
     m_game_library_dock->setWidget(nullptr);
@@ -1339,15 +1369,14 @@ void MainWindow::ResetEditorLayout()
   // tabbed with the big inspection tools, Target Tools and the Property Inspector on the right,
   // and the console (log) tabbed with the CPU state panels along the bottom.
   QDockWidget* const center_tabs[] = {m_memory_widget, m_code_widget, m_jit_widget,
-                                      m_assembler_widget};
+                                      m_assembler_widget, m_frame_capture_widget};
   // Tall panels (threads, network, log config) go in the full-height right column so the default
   // layout fits on a 1080p screen.
   QDockWidget* const inspector_tabs[] = {m_property_inspector_widget, m_thread_widget,
                                          m_network_widget, m_log_config_widget};
-  QDockWidget* const console_tabs[] = {m_log_widget,      m_build_output_widget,
-                                       m_warnings_widget, m_errors_widget,
-                                       m_register_widget, m_watch_widget,
-                                       m_breakpoint_widget};
+  QDockWidget* const console_tabs[] = {
+      m_log_widget,    m_build_output_widget,    m_warnings_widget, m_errors_widget,
+      m_render_profiler_widget, m_register_widget, m_watch_widget,  m_breakpoint_widget};
 
   for (QDockWidget* dock :
        {static_cast<QDockWidget*>(m_game_library_dock), static_cast<QDockWidget*>(m_game_view_widget),
@@ -1362,7 +1391,9 @@ void MainWindow::ResetEditorLayout()
         static_cast<QDockWidget*>(m_project_widget),
         static_cast<QDockWidget*>(m_build_output_widget),
         static_cast<QDockWidget*>(m_warnings_widget),
-        static_cast<QDockWidget*>(m_errors_widget)})
+        static_cast<QDockWidget*>(m_errors_widget),
+        static_cast<QDockWidget*>(m_render_profiler_widget),
+        static_cast<QDockWidget*>(m_frame_capture_widget)})
   {
     dock->setFloating(false);
   }
@@ -1388,7 +1419,9 @@ void MainWindow::ResetEditorLayout()
   m_project_widget->show();
   for (QDockWidget* dock : {static_cast<QDockWidget*>(m_build_output_widget),
                             static_cast<QDockWidget*>(m_warnings_widget),
-                            static_cast<QDockWidget*>(m_errors_widget)})
+                            static_cast<QDockWidget*>(m_errors_widget),
+                            static_cast<QDockWidget*>(m_render_profiler_widget),
+                            static_cast<QDockWidget*>(m_frame_capture_widget)})
   {
     dock->show();
   }
@@ -1459,7 +1492,20 @@ void MainWindow::RestoreLayoutState()
   {
     const QByteArray state = settings.value(QStringLiteral("mainwindow/editorstate")).toByteArray();
     if (state.isEmpty() || !restoreState(state))
+    {
       ResetEditorLayout();
+    }
+    else
+    {
+      // Panels added after the layout was saved go where the default layout puts them.
+      if (!restoreDockWidget(m_render_profiler_widget))
+        tabifyDockWidget(m_log_widget, m_render_profiler_widget);
+      if (!restoreDockWidget(m_frame_capture_widget))
+      {
+        tabifyDockWidget(m_game_view_widget, m_frame_capture_widget);
+        m_game_view_widget->raise();
+      }
+    }
     // A saved state can't bring back the game view/library if they were somehow lost.
     m_game_library_dock->show();
     m_game_view_widget->show();

@@ -45,6 +45,7 @@
 
 #include "UICommon/DiscordPresence.h"
 
+#include "VideoCommon/RenderProfiler.h"
 #include "VideoCommon/Statistics.h"
 #include "VideoCommon/VideoBackendBase.h"
 #include "VideoCommon/VideoConfig.h"
@@ -140,6 +141,7 @@ void Init()
   Common::Log::LogManager::Init();
   VideoBackendBase::ActivateBackend(Config::Get(Config::MAIN_GFX_BACKEND));
   Statistics::Init();
+  RenderProfiler::Init();
 
   RefreshConfig();
 }
@@ -148,6 +150,7 @@ void Shutdown()
 {
   Config::RemoveConfigChangedCallback(s_config_changed_callback_id);
 
+  RenderProfiler::Shutdown();
   Statistics::Shutdown();
   GCAdapter::Shutdown();
   WiimoteReal::Shutdown();

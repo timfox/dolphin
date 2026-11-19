@@ -31,6 +31,7 @@ private:
   QLabel* m_title;
   QLabel* m_cpu;
   QLabel* m_mem;
+  QLabel* m_vi;
   QLabel* m_backend;
   QLabel* m_speed;
   QLabel* m_fps;

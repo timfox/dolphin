@@ -15,6 +15,8 @@ add_library(core
   Boot/DolReader.h
   Boot/ElfReader.cpp
   Boot/ElfReader.h
+  Boot/ElfToDol.cpp
+  Boot/ElfToDol.h
   Boot/ElfTypes.h
   BootManager.cpp
   BootManager.h

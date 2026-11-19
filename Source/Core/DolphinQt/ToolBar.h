@@ -7,6 +7,7 @@
 #include <QToolBar>
 
 class QAction;
+class QMenu;
 
 namespace Core
 {
@@ -37,7 +38,13 @@ public:
   // Project (Build/Run) buttons are only shown in the editor layout.
   void SetProjectActionsVisible(bool visible);
   void SetProjectState(bool project_open, bool building);
+  // The Set Project button's drop-down (recent projects).
+  void SetRecentProjectsMenu(QMenu* menu);
 signals:
+  void NewProjectPressed();
+  void SetProjectPressed();
+  void MakeDolPressed();
+  void PackGcmPressed();
   void OpenPressed();
   void BuildPressed();
   void RunPressed();
@@ -69,6 +76,10 @@ private:
   void UpdatePausePlayButtonState(bool playing_state);
   void UpdateMuteButtonState();
 
+  QAction* m_new_project_action;
+  QAction* m_set_project_action;
+  QAction* m_make_dol_action;
+  QAction* m_pack_gcm_action;
   QAction* m_open_action;
   QAction* m_refresh_action;
   QAction* m_build_action;

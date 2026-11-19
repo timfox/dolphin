@@ -34,16 +34,30 @@ Converted inside Dolphin (C++ ports in `Source/Core/GxBake`, byte-identical to t
 | WAD3 (`.wad`) | `media/<name>.gct`: every miptex, HUD picture and font |
 | GoldSrc map (`.bsp`, v30) | `media/wt_<map>.gct` from the map and its WADs, plus `media/sky_<sky><side>.cmp` from `gfx/env/` |
 | GoldSrc studio model (`.mdl`) | `gc_studio/<name>.mdl` (mesh only) and `gc_studio/<name>t.mdl` (skins, 64 px max) |
+| Quake sprite (`.spr`, v1), Quake II sprite (`.sp2`) | `sprites/<name>.spr`: a Half-Life (v2) sprite, halved like the others |
+| Quake WAD2 (`.wad`) | `media/<name>.gct`: every miptex, coloured by Quake's palette |
+| Quake map (`.bsp`, v29) | `media/wt_<map>.gct` from the map's own textures |
+| Quake alias model (`.mdl`, IDPO) | `models/<name>.mdl` (studio model of the first frame and skin), plus the two `gc_studio/` files |
+| Source model (`.mdl`, IDST v44-49, with its `.vvd` and `.vtx`) | `models/<name>.mdl` (bones, LOD 0, skin family 0, the sequences stored in the `.mdl`, helper bones for blended weights), plus the two `gc_studio/` files |
+| Source map (`.bsp`, VBSP v19-21 and 25) | `maps/<map>.bsp`: the map rebuilt as BSP v30 (hull 0 from the render tree, faces cut for 16-luxel lightmaps and relit from the Source lightmaps, textures embedded, displacements and overlays as faces, the PVS per leaf, clip hulls 1-3 from the brushes, `prop_static` as `cycler_sprite`), plus `media/wt_<map>.gct` and `media/sky_<sky><side>.cmp` |
 
 GoldSrc files also go on the disc as they are. A map's WADs are found like the Python tool finds
 them: every WAD in the map's gamedir, then the map's `"wad"` list, `halflife.wad`,
 `hlbasics.wad`, `decals.wad` and `dod_*.wad` from the gamedir's `dod`/`valve` siblings and the
 `DODGC_FULL_DOD`, `DODGC_WT_WAD_ROOT` and `HL_VALVE_DIR` folders. A map is baked again when any of
-those WADs or its sky images change. The CMPR cache (`python-cmpr/` in the cache folder) uses the
+those WADs or its sky images change. Quake files use Quake's palette, `gfx/palette.lmp` found
+loose or inside a `.pak` in the file's folder or up to five folders above it (or their `id1/`);
+without one they are baked in greyscale with a warning. A Quake II sprite's frames are read from
+the PCX files it names (or their `baseq2/` copies). A Source model's skins are found through its
+`.vmt` files (`$basetexture`) under the nearest `materials/` folder, and the model is baked again
+when its `.vvd`, `.vtx`, `.vmt` or `.vtf` files change. A Source map's materials and sky are read
+from its pakfile lump, then the game folders around it (its gamedir and any folder up to five
+above it holding `materials/` or a `*_dir.vpk`), then those `*_dir.vpk` archives; it is baked
+again when a material file or VPK it uses changes. The CMPR cache (`python-cmpr/` in the cache folder) uses the
 Python tool's keys and layout, so both share it.
 
 Everything else GxBake reads (JPEG and other image formats, panoramas and cubemap crosses, other
-3D model formats, Quake sprites, WAD2 files and maps, Source and Source 2 assets, compressed audio,
+3D model formats, Source textures, Source 2 assets, compressed audio,
 video) is handed to the GxBake
 Python tool, one call per folder, when it is installed (`pip install git+https://github.com/timfox/gxbake`, or point
 `PythonCommand` at it). Its outputs are merged the same way; images still go into the one

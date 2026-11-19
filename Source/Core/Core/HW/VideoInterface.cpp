@@ -464,6 +464,26 @@ u32 VideoInterfaceManager::GetXFBAddressBottom() const
     return m_xfb_info_bottom.FBB;
 }
 
+u32 VideoInterfaceManager::GetModeWidth() const
+{
+  return m_picture_configuration.WPL * 16;
+}
+
+u32 VideoInterfaceManager::GetModeHeight() const
+{
+  return m_vertical_timing_register.ACV * (IsInterlacedMode() ? 2 : 1);
+}
+
+bool VideoInterfaceManager::IsInterlacedMode() const
+{
+  return !m_display_control_register.NIN;
+}
+
+u32 VideoInterfaceManager::GetVideoFormat() const
+{
+  return m_display_control_register.FMT;
+}
+
 u32 VideoInterfaceManager::GetHalfLinesPerEvenField() const
 {
   return (3 * m_vertical_timing_register.EQU + m_vblank_timing_even.PRB +

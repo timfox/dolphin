@@ -27,6 +27,8 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Core\DSP\DSPTestBinary.h" />
+    <ClInclude Include="Core\GxBakeSourceFixture.h" />
+    <ClInclude Include="Core\GxBakeSourceMapFixture.h" />
     <ClInclude Include="Core\DSP\DSPTestText.h" />
     <ClInclude Include="Core\DSP\HermesBinary.h" />
     <ClInclude Include="Core\DSP\HermesText.h" />
@@ -69,6 +71,7 @@
     <ClCompile Include="Core\DSP\HermesBinary.cpp" />
     <ClCompile Include="Core\DSP\HermesText.cpp" />
     <ClCompile Include="Core\IOS\ES\FormatsTest.cpp" />
+    <ClCompile Include="Core\ElfToDolTest.cpp" />
     <ClCompile Include="Core\GxBakeTest.cpp" />
     <ClCompile Include="Core\IOS\FS\FileSystemTest.cpp" />
     <ClCompile Include="Core\IOS\USB\SkylandersTest.cpp" />

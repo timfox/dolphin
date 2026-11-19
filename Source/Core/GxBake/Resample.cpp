@@ -6,6 +6,7 @@
 
 #include "GxBake/Resample.h"
 
+#include <algorithm>
 #include <cmath>
 #include <numbers>
 
@@ -42,6 +43,13 @@ double BicubicFilter(double x)
   return 0.0;
 }
 
+double BoxFilter(double x)
+{
+  if (x > -0.5 && x <= 0.5)
+    return 1.0;
+  return 0.0;
+}
+
 struct Coeffs
 {
   int ksize = 0;
@@ -51,8 +59,11 @@ struct Coeffs
 
 Coeffs Precompute(int in_size, float in0, float in1, int out_size, Filter filter)
 {
-  const double filter_support = filter == Filter::Lanczos ? 3.0 : 2.0;
-  double (*fn)(double) = filter == Filter::Lanczos ? LanczosFilter : BicubicFilter;
+  const double filter_support =
+      filter == Filter::Lanczos ? 3.0 : filter == Filter::Box ? 0.5 : 2.0;
+  double (*fn)(double) = filter == Filter::Lanczos ? LanczosFilter :
+                         filter == Filter::Box     ? BoxFilter :
+                                                     BicubicFilter;
 
   double scale = static_cast<double>(in1 - in0) / out_size;
   double filterscale = scale;
@@ -209,6 +220,35 @@ std::vector<uint8_t> Resize(const std::vector<uint8_t>& src, int width, int heig
     cur = std::move(tmp);
   }
   return cur;
+}
+
+std::vector<uint8_t> ResizeRgba(const std::vector<uint8_t>& src, int width, int height,
+                                int out_width, int out_height, Filter filter)
+{
+  if (filter == Filter::Nearest)
+    return Resize(src, width, height, 4, out_width, out_height, filter);
+  // Convert.c rgbA2rgba / rgba2rgbA
+  std::vector<uint8_t> premultiplied(src.size());
+  for (size_t i = 0; i + 3 < src.size(); i += 4)
+  {
+    const unsigned alpha = src[i + 3];
+    for (int c = 0; c < 3; c++)
+    {
+      const unsigned tmp = src[i + c] * alpha + 128;
+      premultiplied[i + c] = static_cast<uint8_t>(((tmp >> 8) + tmp) >> 8);
+    }
+    premultiplied[i + 3] = src[i + 3];
+  }
+  std::vector<uint8_t> out = Resize(premultiplied, width, height, 4, out_width, out_height, filter);
+  for (size_t i = 0; i + 3 < out.size(); i += 4)
+  {
+    const unsigned alpha = out[i + 3];
+    if (alpha == 255 || alpha == 0)
+      continue;
+    for (int c = 0; c < 3; c++)
+      out[i + c] = static_cast<uint8_t>(std::min(255u, (255 * out[i + c]) / alpha));
+  }
+  return out;
 }
 
 std::vector<uint8_t> ResizeMaskNearest(const std::vector<uint8_t>& src, int width, int height,

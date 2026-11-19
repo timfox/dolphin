@@ -3,6 +3,9 @@
 
 #pragma once
 
+#include <utility>
+#include <vector>
+
 #include <QDialog>
 #include <QDockWidget>
 
@@ -11,6 +14,7 @@
 class QFileSystemModel;
 class QLabel;
 class QLineEdit;
+class QListWidget;
 class QPlainTextEdit;
 class QPushButton;
 class QStackedWidget;
@@ -37,11 +41,14 @@ signals:
 
 private:
   void OnProjectChanged();
+  void UpdateRecentProjects();
   void OnActivated(const QModelIndex& index);
   void ShowContextMenu(const QPoint& pos);
 
   DevkitProject* m_project;
   QStackedWidget* m_stack;
+  QWidget* m_recent_box;
+  QListWidget* m_recent;
   QLabel* m_name;
   QTreeView* m_tree;
   QFileSystemModel* m_model;
@@ -83,7 +90,8 @@ private:
   QTreeWidget* m_list;
 };
 
-// Edits a project's build command, clean command and run target.
+// The Project Window, like Maya's: the project's name and location, its folder rules and its build
+// settings.
 class ProjectSettingsDialog final : public QDialog
 {
   Q_OBJECT
@@ -94,6 +102,8 @@ private:
   void Save();
 
   DevkitProject* m_project;
+  QLineEdit* m_name;
+  std::vector<std::pair<const char*, QLineEdit*>> m_folders;
   QLineEdit* m_build;
   QLineEdit* m_clean;
   QLineEdit* m_run_target;

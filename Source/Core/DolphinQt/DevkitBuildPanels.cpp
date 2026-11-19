@@ -12,11 +12,13 @@
 #include <QFileSystemModel>
 #include <QFontDatabase>
 #include <QFormLayout>
+#include <QGroupBox>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
+#include <QListWidget>
 #include <QMenu>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -116,13 +118,15 @@ ProjectWidget::ProjectWidget(DevkitProject* project, QWidget* parent)
   auto* const empty_layout = new QVBoxLayout(empty);
   empty_layout->setContentsMargins(16, 16, 16, 16);
   empty_layout->setSpacing(10);
-  auto* const hint = new QLabel(tr("No project open.\n\nCreate a GameCube homebrew project from a "
-                                   "template, or open an existing project folder."));
+  auto* const hint =
+      new QLabel(tr("No project set.\n\nCreate a GameCube homebrew project from a template, or "
+                    "set an existing folder as the project. Its folder becomes the workspace that "
+                    "builds, assets and relative paths use."));
   hint->setObjectName(QStringLiteral("projectHint"));
   hint->setWordWrap(true);
   hint->setAlignment(Qt::AlignCenter);
   QPushButton* const new_button = MakeBigButton("folder-plus", tr("New Project..."));
-  QPushButton* const open_button = MakeBigButton("folder-open", tr("Open Project Folder..."));
+  QPushButton* const open_button = MakeBigButton("folder-open", tr("Set Project..."));
   connect(new_button, &QPushButton::clicked, this, &ProjectWidget::NewProjectRequested);
   connect(open_button, &QPushButton::clicked, this, &ProjectWidget::OpenProjectRequested);
   empty_layout->addStretch();
@@ -130,6 +134,25 @@ ProjectWidget::ProjectWidget(DevkitProject* project, QWidget* parent)
   empty_layout->addSpacing(6);
   empty_layout->addWidget(new_button);
   empty_layout->addWidget(open_button);
+
+  // Recent projects, most recent first; one click sets the project.
+  m_recent_box = new QWidget;
+  auto* const recent_layout = new QVBoxLayout(m_recent_box);
+  recent_layout->setContentsMargins(0, 10, 0, 0);
+  auto* const recent_title = new QLabel(tr("Recent Projects"));
+  recent_title->setObjectName(QStringLiteral("projectName"));
+  m_recent = new QListWidget;
+  m_recent->setObjectName(QStringLiteral("recentProjects"));
+  m_recent->setIconSize(QSize(16, 16));
+  connect(m_recent, &QListWidget::itemActivated, this, [this](QListWidgetItem* item) {
+    m_project->Open(item->data(Qt::UserRole).toString());
+  });
+  connect(m_recent, &QListWidget::itemClicked, this, [this](QListWidgetItem* item) {
+    m_project->Open(item->data(Qt::UserRole).toString());
+  });
+  recent_layout->addWidget(recent_title);
+  recent_layout->addWidget(m_recent);
+  empty_layout->addWidget(m_recent_box, 1);
   empty_layout->addStretch();
 
   // Open state: header + file tree.
@@ -146,7 +169,7 @@ ProjectWidget::ProjectWidget(DevkitProject* project, QWidget* parent)
   m_name->setObjectName(QStringLiteral("projectName"));
   auto* const settings_button = new QToolButton;
   settings_button->setIcon(IconSet::Get("gear"));
-  settings_button->setToolTip(tr("Project settings (build command, run target)"));
+  settings_button->setToolTip(tr("Project Window (name, folders, build settings)"));
   settings_button->setAutoRaise(true);
   connect(settings_button, &QToolButton::clicked, this, &ProjectWidget::SettingsRequested);
   header_layout->addWidget(m_name, 1);
@@ -183,7 +206,10 @@ ProjectWidget::ProjectWidget(DevkitProject* project, QWidget* parent)
   setWidget(m_stack);
 
   connect(m_project, &DevkitProject::ProjectChanged, this, &ProjectWidget::OnProjectChanged);
+  connect(m_project, &DevkitProject::RecentProjectsChanged, this,
+          &ProjectWidget::UpdateRecentProjects);
   OnProjectChanged();
+  UpdateRecentProjects();
 }
 
 void ProjectWidget::OnProjectChanged()
@@ -198,6 +224,20 @@ void ProjectWidget::OnProjectChanged()
   m_name->setToolTip(m_project->GetPath());
   m_tree->setRootIndex(m_model->setRootPath(m_project->GetPath()));
   m_stack->setCurrentIndex(1);
+}
+
+void ProjectWidget::UpdateRecentProjects()
+{
+  m_recent->clear();
+  for (const QString& path : DevkitProject::GetRecentProjects())
+  {
+    auto* const item = new QListWidgetItem(IconSet::Get("folder", QColor(QStringLiteral("#ffc857"))),
+                                           QFileInfo(path).fileName());
+    item->setData(Qt::UserRole, path);
+    item->setToolTip(QDir::toNativeSeparators(path));
+    m_recent->addItem(item);
+  }
+  m_recent_box->setVisible(m_recent->count() > 0);
 }
 
 void ProjectWidget::OnActivated(const QModelIndex& index)
@@ -366,9 +406,51 @@ void DiagnosticsWidget::UpdateTitle()
 ProjectSettingsDialog::ProjectSettingsDialog(DevkitProject* project, QWidget* parent)
     : QDialog(parent), m_project(project)
 {
-  setWindowTitle(tr("Project Settings - %1").arg(project->GetName()));
-  setMinimumWidth(560);
+  setWindowTitle(tr("Project Window - %1").arg(project->GetName()));
+  setMinimumWidth(620);
 
+  // Project: name and location.
+  m_name = new QLineEdit(project->GetName());
+  auto* const location = new QLabel(QDir::toNativeSeparators(project->GetPath()));
+  location->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  location->setWordWrap(true);
+  auto* const project_box = new QGroupBox(tr("Project"));
+  auto* const project_form = new QFormLayout(project_box);
+  project_form->addRow(tr("Name:"), m_name);
+  project_form->addRow(tr("Location:"), location);
+
+  // Folder rules, relative to the project folder.
+  auto* const folders_box = new QGroupBox(tr("Project Folders"));
+  auto* const folders_form = new QFormLayout(folders_box);
+  for (const DevkitProject::FolderRule& rule : DevkitProject::GetFolderRules())
+  {
+    auto* const edit = new QLineEdit(project->GetFolder(rule.key));
+    edit->setToolTip(rule.description);
+    auto* const browse = new QToolButton;
+    browse->setIcon(IconSet::Get("folder-open"));
+    browse->setToolTip(tr("Choose the %1 folder").arg(rule.label));
+    connect(browse, &QToolButton::clicked, this, [this, edit, label = rule.label] {
+      const QString start = QDir(m_project->GetPath()).absoluteFilePath(edit->text());
+      const QString dir = QFileDialog::getExistingDirectory(
+          this, tr("Choose the %1 Folder").arg(label),
+          QFileInfo(start).isDir() ? start : m_project->GetPath());
+      if (dir.isEmpty())
+        return;
+      const QString relative = QDir(m_project->GetPath()).relativeFilePath(dir);
+      edit->setText(relative.startsWith(QStringLiteral("..")) ?
+                        QDir::toNativeSeparators(dir) :
+                        (relative.isEmpty() ? QStringLiteral(".") : relative));
+    });
+    auto* const row = new QHBoxLayout;
+    row->addWidget(edit);
+    row->addWidget(browse);
+    auto* const label = new QLabel(rule.label + QLatin1Char(':'));
+    label->setToolTip(rule.description);
+    folders_form->addRow(label, row);
+    m_folders.emplace_back(rule.key, edit);
+  }
+
+  // Build settings.
   m_build = new QLineEdit(project->GetBuildCommand());
   m_clean = new QLineEdit(project->GetCleanCommand());
   m_run_target = new QLineEdit(project->GetRunTarget());
@@ -394,16 +476,18 @@ ProjectSettingsDialog::ProjectSettingsDialog(DevkitProject* project, QWidget* pa
   run_row->addWidget(m_run_target);
   run_row->addWidget(browse);
 
-  auto* const form = new QFormLayout;
+  auto* const build_box = new QGroupBox(tr("Build"));
+  auto* const form = new QFormLayout(build_box);
   form->addRow(tr("Build command:"), m_build);
   form->addRow(tr("Clean command:"), m_clean);
   form->addRow(tr("Run target:"), run_row);
   form->addRow(tr("Open files with:"), m_editor);
 
-  auto* const note =
-      new QLabel(tr("Commands run in the project folder through the system shell. Settings are "
-                    "saved in %1 in the project folder.")
-                     .arg(QString::fromLatin1(DevkitProject::SETTINGS_FILE_NAME)));
+  auto* const note = new QLabel(
+      tr("Relative paths resolve against the project folder. Commands run there through the "
+         "system shell. Everything is saved in %1 in the project folder, so it can be committed "
+         "with the project.")
+          .arg(QString::fromLatin1(DevkitProject::SETTINGS_FILE_NAME)));
   note->setWordWrap(true);
   note->setObjectName(QStringLiteral("projectHint"));
 
@@ -415,15 +499,21 @@ ProjectSettingsDialog::ProjectSettingsDialog(DevkitProject* project, QWidget* pa
   connect(buttons, &QDialogButtonBox::rejected, this, &QDialog::reject);
 
   auto* const layout = new QVBoxLayout(this);
-  layout->addLayout(form);
+  layout->addWidget(project_box);
+  layout->addWidget(folders_box);
+  layout->addWidget(build_box);
   layout->addWidget(note);
   layout->addWidget(buttons);
 }
 
 void ProjectSettingsDialog::Save()
 {
+  for (const auto& [key, edit] : m_folders)
+    m_project->SetFolder(key, edit->text().isEmpty() ? QStringLiteral(".") : edit->text());
   m_project->SetBuildCommand(m_build->text().trimmed());
   m_project->SetCleanCommand(m_clean->text().trimmed());
   m_project->SetRunTarget(m_run_target->text().trimmed());
   m_project->SetEditorCommand(m_editor->text().trimmed());
+  // Last: it signals the project change that refreshes the panels.
+  m_project->SetName(m_name->text());
 }

@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cstdlib>
+#include <string_view>
 
 #include <QDesktopServices>
 #include <QDir>
@@ -22,6 +23,8 @@
 namespace
 {
 const QString LAST_PROJECT_KEY = QStringLiteral("devkit/lastProject");
+const QString RECENT_PROJECTS_KEY = QStringLiteral("devkit/recentProjects");
+constexpr int MAX_RECENT_PROJECTS = 10;
 
 // A small devkitPPC/libogc project based on devkitPro's standard GameCube template.
 constexpr const char TEMPLATE_MAKEFILE[] = R"MAKE(#---------------------------------------------------------------------------------
@@ -157,9 +160,36 @@ DevkitProject::DevkitProject(QObject* parent) : QObject(parent)
 {
 }
 
+const std::vector<DevkitProject::FolderRule>& DevkitProject::GetFolderRules()
+{
+  static const std::vector<FolderRule> rules = {
+      {"source", "source", tr("Source"), tr("C/C++ and assembly sources")},
+      {"include", "include", tr("Include"), tr("Headers")},
+      {"data", "data", tr("Data"), tr("Binary files linked into the executable")},
+      {"assets", "assets", tr("Assets"),
+       tr("GxBake sources, converted to GameCube formats when the game boots")},
+      {"disc", "game", tr("Disc"),
+       tr("The disc's folder (sys/ and files/), packed into the GCM image")},
+      {"output", "build", tr("Output"), tr("Where Make DOL and Pack GCM write the DOL and GCM")},
+  };
+  return rules;
+}
+
 QString DevkitProject::GetName() const
 {
-  return QFileInfo(m_path).fileName();
+  const QString name = ReadSetting(QStringLiteral("project/name"), QString()).trimmed();
+  return name.isEmpty() ? QFileInfo(m_path).fileName() : name;
+}
+
+void DevkitProject::SetName(const QString& name)
+{
+  WriteSetting(QStringLiteral("project/name"), name.trimmed());
+  emit ProjectChanged();
+}
+
+bool DevkitProject::HasDefinition() const
+{
+  return IsOpen() && QDir(m_path).exists(QString::fromLatin1(SETTINGS_FILE_NAME));
 }
 
 bool DevkitProject::Open(const QString& path)
@@ -169,9 +199,81 @@ bool DevkitProject::Open(const QString& path)
     return false;
 
   m_path = info.canonicalFilePath();
-  Settings::GetQSettings().setValue(LAST_PROJECT_KEY, m_path);
+  QSettings& settings = Settings::GetQSettings();
+  settings.setValue(LAST_PROJECT_KEY, m_path);
+  QStringList recent = GetRecentProjects();
+  recent.removeAll(m_path);
+  recent.prepend(m_path);
+  while (recent.size() > MAX_RECENT_PROJECTS)
+    recent.removeLast();
+  settings.setValue(RECENT_PROJECTS_KEY, recent);
   emit ProjectChanged();
+  emit RecentProjectsChanged();
   return true;
+}
+
+bool DevkitProject::SetProject(const QString& path)
+{
+  if (!Open(path))
+    return false;
+  if (!HasDefinition())
+  {
+    WriteSetting(QStringLiteral("project/name"), QFileInfo(m_path).fileName());
+    for (const FolderRule& rule : GetFolderRules())
+      SetFolder(rule.key, GetFolder(rule.key));
+    SetBuildCommand(GetBuildCommand());
+    SetCleanCommand(GetCleanCommand());
+  }
+  return true;
+}
+
+QStringList DevkitProject::GetRecentProjects()
+{
+  QStringList recent;
+  for (const QString& path :
+       Settings::GetQSettings().value(RECENT_PROJECTS_KEY).toStringList())
+  {
+    if (QFileInfo(path).isDir() && !recent.contains(path))
+      recent.append(path);
+  }
+  return recent;
+}
+
+void DevkitProject::ClearRecentProjects()
+{
+  Settings::GetQSettings().remove(RECENT_PROJECTS_KEY);
+  emit RecentProjectsChanged();
+}
+
+QString DevkitProject::GetFolder(const char* key) const
+{
+  const auto& rules = GetFolderRules();
+  const auto rule = std::find_if(rules.begin(), rules.end(), [key](const FolderRule& r) {
+    return std::string_view(r.key) == key;
+  });
+  const QString fallback =
+      rule != rules.end() ? QString::fromLatin1(rule->default_dir) : QStringLiteral(".");
+  const QString dir =
+      ReadSetting(QStringLiteral("folders/") + QString::fromLatin1(key), fallback).trimmed();
+  return dir.isEmpty() ? fallback : dir;
+}
+
+QString DevkitProject::GetFolderPath(const char* key) const
+{
+  return QDir::cleanPath(QDir(m_path).absoluteFilePath(GetFolder(key)));
+}
+
+void DevkitProject::SetFolder(const char* key, const QString& dir)
+{
+  // Folders inside the project are stored relative to it, so the project can move.
+  QString value = dir.trimmed();
+  if (QDir::isAbsolutePath(value))
+  {
+    const QString relative = QDir(m_path).relativeFilePath(value);
+    if (!relative.startsWith(QStringLiteral("..")))
+      value = relative.isEmpty() ? QStringLiteral(".") : relative;
+  }
+  WriteSetting(QStringLiteral("folders/") + QString::fromLatin1(key), value);
 }
 
 void DevkitProject::Close()
@@ -245,14 +347,14 @@ bool DevkitProject::CreateFromTemplate(const QString& path, QString* error)
     return false;
   }
 
-  if (!Open(path))
+  // Writes the project definition with the defaults, so they're visible and editable.
+  if (!SetProject(path))
   {
     *error = tr("Couldn't open \"%1\".").arg(path);
     return false;
   }
-  // Write the defaults out so they're visible and editable in the project folder.
-  SetBuildCommand(GetBuildCommand());
-  SetCleanCommand(GetCleanCommand());
+  // The template's Makefile writes the ELF and DOL next to it.
+  SetFolder("output", QStringLiteral("."));
   return true;
 }
 

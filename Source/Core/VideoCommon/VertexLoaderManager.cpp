@@ -26,6 +26,7 @@
 #include "VideoCommon/CPMemory.h"
 #include "VideoCommon/DataReader.h"
 #include "VideoCommon/NativeVertexFormat.h"
+#include "VideoCommon/RenderProfiler.h"
 #include "VideoCommon/Statistics.h"
 #include "VideoCommon/VertexLoaderBase.h"
 #include "VideoCommon/VertexManagerBase.h"
@@ -474,6 +475,7 @@ int RunVertices(int vtx_attr_group, OpcodeDecoder::Primitive primitive, int coun
     } while (count);
 
     INCSTAT(g_stats.this_frame.num_primitive_joins);
+    RenderProfiler::OnGXPrimitive(static_cast<u8>(primitive));
   }
   return size;
 }

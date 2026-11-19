@@ -43,6 +43,7 @@ class DevkitBuilder;
 class DevkitProject;
 class DevkitStatusBar;
 class DiagnosticsWidget;
+class FrameCaptureWidget;
 class ProjectWidget;
 class PropertyInspectorWidget;
 class TargetToolsWidget;
@@ -63,6 +64,7 @@ class NetPlayDialog;
 class NetPlaySetupDialog;
 class NetworkWidget;
 class RegisterWidget;
+class RenderProfilerWidget;
 class RenderWidget;
 class SearchBar;
 class Settings;
@@ -170,6 +172,7 @@ private:
   void CreateProjectMenu();
   void UpdateProjectActions();
   void UpdateWindowTitle();
+  void QueueDefaultDockSizes();
   void NewProject();
   void OpenProject();
   void OpenProjectForExecutable(const QString& executable_path);
@@ -296,6 +299,8 @@ private:
   BuildOutputWidget* m_build_output_widget = nullptr;
   DiagnosticsWidget* m_warnings_widget = nullptr;
   DiagnosticsWidget* m_errors_widget = nullptr;
+  RenderProfilerWidget* m_render_profiler_widget = nullptr;
+  FrameCaptureWidget* m_frame_capture_widget = nullptr;
   QMenu* m_project_menu = nullptr;
   QAction* m_close_project_action = nullptr;
   QAction* m_build_action = nullptr;
@@ -308,6 +313,9 @@ private:
   // Every dock panel and the Font Awesome icon it shows in its title bar and tab.
   std::vector<std::pair<QDockWidget*, std::string_view>> m_dock_icons;
   bool m_dock_tab_icon_refresh_queued = false;
+  // Set by Reset Editor Layout: re-apply the default dock proportions when the window resizes.
+  bool m_keep_default_dock_sizes = false;
+  bool m_default_dock_sizes_queued = false;
   bool m_editor_layout_active = false;
   ToolBar* m_tool_bar;
   MenuBar* m_menu_bar;

@@ -4,8 +4,13 @@
 #include "DolphinQt/ToolBar.h"
 
 #include <QAction>
+#include <QActionEvent>
 #include <QIcon>
+#include <QLinearGradient>
+#include <QPainter>
+#include <QPainterPath>
 #include <QSizePolicy>
+#include <QToolButton>
 
 #include "AudioCommon/AudioCommon.h"
 #include "Core/Config/MainSettings.h"
@@ -20,6 +25,9 @@ static QSize ICON_SIZE(26, 26);
 
 ToolBar::ToolBar(QWidget* parent) : QToolBar(parent)
 {
+  // Name the toolbar before anything can polish it (setVisible below does), so the stylesheet's
+  // QToolBar#toolbar rules apply to it.
+  setObjectName(QStringLiteral("toolbar"));
   setToolButtonStyle(Qt::ToolButtonTextUnderIcon);
   setMovable(!Settings::Instance().AreWidgetsLocked());
   setFloatable(false);
@@ -27,7 +35,6 @@ ToolBar::ToolBar(QWidget* parent) : QToolBar(parent)
   setVisible(Settings::Instance().IsToolBarVisible());
 
   setWindowTitle(tr("Toolbar"));
-  setObjectName(QStringLiteral("toolbar"));
 
   MakeActions();
   connect(&Settings::Instance(), &Settings::ThemeChanged, this, &ToolBar::UpdateIcons);
@@ -85,6 +92,7 @@ void ToolBar::closeEvent(QCloseEvent*)
 
 void ToolBar::OnDebugModeToggled(bool enabled)
 {
+  m_debug_separator->setVisible(enabled);
   m_step_action->setVisible(enabled);
   m_step_over_action->setVisible(enabled);
   m_step_out_action->setVisible(enabled);
@@ -133,6 +141,8 @@ void ToolBar::MakeActions()
   m_graphics_action = addAction(tr("Graphics"), this, &ToolBar::GraphicsPressed);
   m_controllers_action = addAction(tr("Controllers"), this, &ToolBar::ControllersPressed);
 
+  m_debug_separator = addSeparator();
+
   // i18n: Here, "Step" is a verb. This feature is used for
   // going through code step by step.
   m_step_action = addAction(tr("Step"), this, &ToolBar::StepPressed);
@@ -157,6 +167,68 @@ void ToolBar::MakeActions()
   // minimum width when the row doesn't fit, which elides the labels ("Scr...hot"); with the
   // buttons' own size hint as the minimum, overflowing buttons move to the toolbar's extension
   // menu instead. The theme's stylesheet evens out the button widths.
+}
+
+bool ToolBar::event(QEvent* event)
+{
+  // The group panels follow the buttons, so repaint whenever the buttons are laid out again.
+  if (event->type() == QEvent::LayoutRequest)
+    update();
+  return QToolBar::event(event);
+}
+
+void ToolBar::actionEvent(QActionEvent* event)
+{
+  QToolBar::actionEvent(event);
+  update();
+}
+
+void ToolBar::paintEvent(QPaintEvent* event)
+{
+  QToolBar::paintEvent(event);
+  if (!m_group_background.isValid())
+    return;
+
+  QPainter painter(this);
+  painter.setRenderHint(QPainter::Antialiasing);
+
+  // Draws one panel behind the visible buttons collected so far. Child widgets paint after this,
+  // so the panel ends up underneath the buttons.
+  QRect group;
+  const auto draw_group = [&] {
+    if (group.isNull())
+      return;
+    const QRectF rect = QRectF(group).adjusted(-3.5, -3.5, 3.5, 3.5);
+    QLinearGradient gradient(rect.topLeft(), rect.bottomLeft());
+    gradient.setColorAt(0, m_group_background.lighter(125));
+    gradient.setColorAt(1, m_group_background);
+    QPainterPath path;
+    path.addRoundedRect(rect, 9, 9);
+    painter.fillPath(path, gradient);
+    if (m_group_border.isValid())
+    {
+      painter.setPen(QPen(m_group_border, 1));
+      painter.drawPath(path);
+    }
+    group = QRect();
+  };
+
+  for (QAction* const action : actions())
+  {
+    if (action->isSeparator())
+    {
+      if (action->isVisible())
+        draw_group();
+      continue;
+    }
+    // Only real buttons that are on the toolbar itself (not in its overflow menu) form groups; the
+    // spacer and the target status panel stay as they are.
+    auto* const button = qobject_cast<QToolButton*>(widgetForAction(action));
+    if (button == nullptr || button->parentWidget() != this || !button->isVisible())
+      continue;
+    group = group.united(button->geometry());
+  }
+  draw_group();
 }
 
 void ToolBar::UpdatePausePlayButtonState(const bool playing_state)

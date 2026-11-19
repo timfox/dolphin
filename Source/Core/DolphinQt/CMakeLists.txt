@@ -385,6 +385,8 @@ add_executable(dolphin-emu
   IconSet.h
   DevkitPanels.cpp
   DevkitPanels.h
+  DevkitRenderProfiler.cpp
+  DevkitRenderProfiler.h
   DevkitStatusBar.cpp
   DevkitStatusBar.h
   DevkitProject.cpp

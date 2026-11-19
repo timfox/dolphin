@@ -81,6 +81,8 @@ struct DrawRecord
   std::string gx_primitives;
   // Pre-formatted descriptions of the GX state at draw time.
   std::string textures;
+  // Main memory address of each bound texture, in texture unit order.
+  std::vector<u32> texture_addresses;
   std::string blend;
   std::string depth;
   std::string cull;
@@ -117,6 +119,19 @@ void Shutdown();
 // Recording only happens while enabled (a profiler panel is visible).
 void SetEnabled(bool enabled);
 bool IsEnabled();
+
+// Plain-language performance problems spotted in |sample|, most important first.
+struct Hint
+{
+  enum class Severity
+  {
+    Info,
+    Warning,
+  };
+  Severity severity;
+  std::string text;
+};
+std::vector<Hint> GetHints(const FrameSample& sample);
 // Drops the collected history.
 void ClearHistory();
 

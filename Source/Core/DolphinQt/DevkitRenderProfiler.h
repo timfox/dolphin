@@ -113,6 +113,8 @@ private:
   QTableWidget* m_table;
   TevHistogram* m_tev;
   QLabel* m_tev_label;
+  // One-line summary of the selected frame's performance hints; the full list is its tooltip.
+  QLabel* m_hints;
   QTimer* m_timer;
 
   std::vector<RenderProfiler::FrameSample> m_history;
@@ -131,7 +133,14 @@ public:
   // Captures the next frame the game renders.
   void RequestCapture();
 
+signals:
+  // Open the Memory Viewer at a texture or EFB copy destination.
+  void ShowMemoryRequested(u32 address);
+
 private:
+  void ShowContextMenu(const QPoint& pos);
+  // Addresses an event touches, with a label for each (e.g. "Texture T0").
+  std::vector<std::pair<QString, u32>> AddressesFor(const QTreeWidgetItem* item) const;
   void Poll();
   void Populate();
   void ApplyFilter();

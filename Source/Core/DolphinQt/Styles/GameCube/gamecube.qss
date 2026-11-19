@@ -483,8 +483,33 @@ QPlainTextEdit#buildOutputText {
 	border: 0;
 }
 
-/* Main toolbar buttons: a little tighter so the editor's extra buttons fit */
+/* Main toolbar: buttons are grouped on raised panels (painted by ToolBar), like the devkit
+   concept, so the buttons themselves are flat until hovered. */
+QToolBar#toolbar {
+	qproperty-groupBackground: #1b1535;
+	qproperty-groupBorder: #4a3f8a;
+	padding: 6px 8px;
+}
+QToolBar#toolbar::separator {
+	background: transparent;
+	width: 10px;
+	margin: 0;
+}
 QToolBar#toolbar QToolButton {
+	background: transparent;
+	border: 1px solid transparent;
 	padding: 4px 6px;
 	min-width: 42px;
+}
+QToolBar#toolbar QToolButton:hover {
+	background: #2e2558;
+	border-color: #5fe3ff;
+}
+QToolBar#toolbar QToolButton:pressed {
+	background: #27215f;
+	border-color: #7dffc7;
+}
+QToolBar#toolbar QToolButton:checked {
+	background: #3a1730;
+	border-color: #ff6b9d;
 }

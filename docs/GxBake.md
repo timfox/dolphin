@@ -30,9 +30,21 @@ Converted inside Dolphin (C++ ports in `Source/Core/GxBake`, byte-identical to t
 | PNG, TGA (8/24/32-bit), BMP (8/24/32-bit) | one entry each in `media/textures.gct` (CMPR, power of two, mips, 1-bit alpha) |
 | six `<name>{rt,bk,lf,ft,up,dn}` images | `media/sky_<name><side>.cmp` |
 | PCM WAV (8/16/24/32-bit) | `media/<name>.gcpcm` |
+| Half-Life sprite (`.spr`, v2) | `sprites/<name>.spr`, halved (alpha-tested strokes kept); multi-frame sprites copied |
+| WAD3 (`.wad`) | `media/<name>.gct`: every miptex, HUD picture and font |
+| GoldSrc map (`.bsp`, v30) | `media/wt_<map>.gct` from the map and its WADs, plus `media/sky_<sky><side>.cmp` from `gfx/env/` |
+| GoldSrc studio model (`.mdl`) | `gc_studio/<name>.mdl` (mesh only) and `gc_studio/<name>t.mdl` (skins, 64 px max) |
 
-Everything else GxBake reads (JPEG and other image formats, panoramas and cubemap crosses, 3D
-models, maps, WADs, Source and Source 2 assets, compressed audio, video) is handed to the GxBake
+GoldSrc files also go on the disc as they are. A map's WADs are found like the Python tool finds
+them: every WAD in the map's gamedir, then the map's `"wad"` list, `halflife.wad`,
+`hlbasics.wad`, `decals.wad` and `dod_*.wad` from the gamedir's `dod`/`valve` siblings and the
+`DODGC_FULL_DOD`, `DODGC_WT_WAD_ROOT` and `HL_VALVE_DIR` folders. A map is baked again when any of
+those WADs or its sky images change. The CMPR cache (`python-cmpr/` in the cache folder) uses the
+Python tool's keys and layout, so both share it.
+
+Everything else GxBake reads (JPEG and other image formats, panoramas and cubemap crosses, other
+3D model formats, Quake sprites, WAD2 files and maps, Source and Source 2 assets, compressed audio,
+video) is handed to the GxBake
 Python tool, one call per folder, when it is installed (`pip install git+https://github.com/timfox/gxbake`, or point
 `PythonCommand` at it). Its outputs are merged the same way; images still go into the one
 `media/textures.gct`, in GxBake's order.

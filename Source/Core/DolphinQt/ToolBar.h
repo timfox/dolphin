@@ -3,6 +3,7 @@
 
 #pragma once
 
+#include <QColor>
 #include <QToolBar>
 
 class QAction;
@@ -15,11 +16,23 @@ enum class State;
 class ToolBar final : public QToolBar
 {
   Q_OBJECT
+  // The buttons between separators are drawn on a shared raised panel, like the devkit concept's
+  // button clusters. Themes set the colors with qproperty-groupBackground / qproperty-groupBorder;
+  // an invalid (unset) background turns the panels off.
+  Q_PROPERTY(QColor groupBackground MEMBER m_group_background)
+  Q_PROPERTY(QColor groupBorder MEMBER m_group_border)
 
 public:
   explicit ToolBar(QWidget* parent = nullptr);
 
   void closeEvent(QCloseEvent*) override;
+
+protected:
+  bool event(QEvent* event) override;
+  void actionEvent(QActionEvent* event) override;
+  void paintEvent(QPaintEvent* event) override;
+
+public:
 
   // Project (Build/Run) buttons are only shown in the editor layout.
   void SetProjectActionsVisible(bool visible);
@@ -77,4 +90,8 @@ private:
   QAction* m_skip_action;
   QAction* m_show_pc_action;
   QAction* m_set_pc_action;
+  QAction* m_debug_separator;
+
+  QColor m_group_background;
+  QColor m_group_border;
 };

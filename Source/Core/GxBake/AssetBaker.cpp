@@ -32,6 +32,8 @@
 #include "GxBake/Config.h"
 #include "GxBake/Encode.h"
 #include "GxBake/GoldSrc.h"
+#include "GxBake/Quake.h"
+#include "GxBake/Studio.h"
 #include "GxBake/Md5.h"
 #include "GxBake/Process.h"
 
@@ -261,6 +263,36 @@ std::string MapDependencies(const fs::path& bsp)
        !ec && it != fs::directory_iterator(); it.increment(ec))
   {
     fp += FileFingerprint(it->path());
+  }
+  return fp;
+}
+
+// The files a Quake sprite, WAD2, v29 map or alias model reads besides itself: Quake's palette
+// (gfx/palette.lmp, loose or in a .pak) and a Quake II sprite's PCX frames.
+std::string QuakeDependencies(const fs::path& host)
+{
+  std::ifstream f(host, std::ios::binary);
+  std::array<u8, 8> head{};
+  f.read(reinterpret_cast<char*>(head.data()), head.size());
+  const std::vector<u8> h(head.begin(), head.begin() + f.gcount());
+  const bool quake = IsQuakeSprite(h) || IsAliasModel(h) || IsWad2(h) ||
+                     (h.size() >= 4 && h[0] == 29 && h[1] == 0 && h[2] == 0 && h[3] == 0);
+  std::string fp;
+  if (quake)
+  {
+    fs::path found;
+    fp += QuakePalette(host, &found) ? FileFingerprint(found) : "no-palette;";
+  }
+  if (IsQuake2Sprite(h))
+  {
+    const auto data = ReadFile(PathToString(host));
+    std::string error;
+    std::vector<fs::path> deps;
+    if (data)
+      Quake2SpriteToHl(host, *data, &error, &deps);
+    for (const fs::path& dep : deps)
+      fp += FileFingerprint(dep);
+    fp += error;
   }
   return fp;
 }
@@ -658,10 +690,11 @@ struct AssetBaker::Impl
       {
         s.kind = Kind::Python;
       }
-      else if (s.ext == ".spr" || s.ext == ".wad" || s.ext == ".bsp" || s.ext == ".mdl")
+      else if (s.ext == ".spr" || s.ext == ".sp2" || s.ext == ".wad" || s.ext == ".bsp" ||
+               s.ext == ".mdl")
       {
-        // Half-Life sprites, WAD3 files, BSP v30 maps and studio models bake natively; Quake and
-        // Source ones turn out to need the Python tool once their header is read.
+        // GoldSrc and Quake sprites, WADs, maps and models bake natively; Source ones turn out
+        // to need the Python tool once their header is read.
         s.kind = Kind::NativeGoldSrc;
       }
       else if (GOLDSRC_EXTS.contains(s.ext))
@@ -843,9 +876,11 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
       continue;
     const std::string key = "goldsrc:" + s.rel;
     const bool map = s.ext == ".bsp";
-    const std::string fp =
-        map ? Md5Hex(s.Fingerprint() + ";" + MapDependencies(StringToPath(s.host))) :
-              s.Fingerprint();
+    const fs::path host_path = StringToPath(s.host);
+    std::string deps = QuakeDependencies(host_path);
+    if (map)
+      deps += MapDependencies(host_path);
+    const std::string fp = deps.empty() ? s.Fingerprint() : Md5Hex(s.Fingerprint() + ";" + deps);
     const auto it = state.find(key);
     if (it != state.end() && it->second.fingerprint == fp &&
         std::ranges::all_of(it->second.outputs,
@@ -860,37 +895,92 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
 
     // disc path (relative to the gamedir) -> contents
     std::map<std::string, std::vector<u8>> baked;
-    if (s.ext == ".spr")
-    {
-      if (SpriteNeedsPython(*data))
+    // Quake's palette, for Quake sprites, WAD2 files, v29 maps and alias models.
+    const auto quake_palette = [&] {
+      auto pal = QuakePalette(host_path);
+      if (!pal)
       {
-        s.kind = Kind::PythonAndPassthrough;  // Quake sprite
-        continue;
+        Warn(fmt::format("{}: Quake palette (gfx/palette.lmp) not found; greyscale used", s.rel));
+        return std::pair{GreyPalette(), false};
+      }
+      return std::pair{*pal, true};
+    };
+
+    if (s.ext == ".spr" || s.ext == ".sp2")
+    {
+      // quake.hl_sprite_bytes: Quake and Quake II sprites become Half-Life (v2) sprites.
+      std::vector<u8> sprite = *data;
+      if (IsQuake2Sprite(*data))
+      {
+        std::string error;
+        const auto q2 = Quake2SpriteToHl(host_path, *data, &error, nullptr);
+        if (!q2)
+        {
+          Warn(fmt::format("{}: {}", s.rel, error));
+          continue;
+        }
+        sprite = *q2;
+      }
+      else if (IsQuakeSprite(*data))
+      {
+        const auto q1 = QuakeSpriteToHl(*data, quake_palette().first);
+        if (!q1)
+        {
+          Warn(fmt::format("{}: not a readable Quake sprite", s.rel));
+          continue;
+        }
+        sprite = *q1;
       }
       // A sprite that can't be leaned (several frames, odd size) is copied as is.
-      baked["sprites/" + s.stem + ".spr"] = LeanHlSprite(*data).value_or(*data);
+      baked["sprites/" + s.stem + ".spr"] = LeanHlSprite(sprite).value_or(sprite);
     }
     else if (s.ext == ".wad")
     {
-      if (!IsWad3(*data))
-      {
-        s.kind = Kind::PythonAndPassthrough;  // Quake WAD2
-        continue;
-      }
-      const auto pack = BuildWadTexturePack(*data, cache_dir + "python-cmpr");
+      const std::vector<u8> palette = IsWad2(*data) ? quake_palette().first : std::vector<u8>{};
+      const auto pack = BuildWadTexturePack(*data, cache_dir + "python-cmpr",
+                                            palette.empty() ? nullptr : palette.data());
       if (!pack)
       {
-        Warn(fmt::format("{}: not a readable WAD3 file", s.rel));
+        Warn(fmt::format("{}: not a readable WAD file", s.rel));
         continue;
       }
       if (!pack->empty())
         baked["media/" + s.stem + ".gct"] = *pack;
     }
+    else if (s.ext == ".mdl" && IsAliasModel(*data))
+    {
+      // quake.import_alias, then models.build_studio_mdl and the gc_studio cuts.
+      const auto [palette, found] = quake_palette();
+      auto model = ImportAliasModel(*data, PathToString(host_path.stem()), palette, found);
+      if (!model)
+      {
+        Warn(fmt::format("{}: not a readable Quake model", s.rel));
+        continue;
+      }
+      std::string error;
+      const auto built = BuildStudioMdl(*model, &error);
+      if (!built)
+      {
+        Warn(fmt::format("{}: {}", s.rel, error));
+        continue;
+      }
+      const std::vector<u8>& mdl = *built;
+      for (const std::string& w : model->warnings)
+      {
+        if (w.find("palette") == std::string::npos)
+          Warn(fmt::format("{}: {}", s.rel, w));
+      }
+      baked["models/" + s.stem + ".mdl"] = mdl;
+      if (const auto lean = LeanStudioMesh(mdl))
+        baked["gc_studio/" + s.stem + ".mdl"] = *lean;
+      if (const auto skins = StudioSkinCompanion(mdl))
+        baked["gc_studio/" + s.stem + "t.mdl"] = *skins;
+    }
     else if (s.ext == ".mdl")
     {
       if (StudioNeedsPython(*data))
       {
-        s.kind = Kind::PythonAndPassthrough;  // Source or Quake model
+        s.kind = Kind::PythonAndPassthrough;  // Source model
         continue;
       }
       // A sequence group (<name>01.mdl, "IDSQ") yields nothing; it still goes on the disc for
@@ -906,16 +996,20 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
       const auto info = ReadBspInfo(*data);
       if (!info)
       {
-        s.kind = Kind::PythonAndPassthrough;  // Quake or Source map
+        s.kind = Kind::PythonAndPassthrough;  // Source map
         continue;
       }
-      const fs::path gamedir = MapGamedir(StringToPath(s.host));
+      const fs::path gamedir = MapGamedir(host_path);
       std::vector<std::string> loaded, missing;
-      const WadIndex wads = CollectWads(*info, gamedir, &loaded);
-      const auto pack = BuildWorldTexturePack(*data, wads, cache_dir + "python-cmpr", &missing);
+      // Quake maps carry their textures and reference no WADs.
+      const bool quake = info->version == 29;
+      const WadIndex wads = quake ? WadIndex{} : CollectWads(*info, gamedir, &loaded);
+      const std::vector<u8> palette = quake ? quake_palette().first : std::vector<u8>{};
+      const auto pack = BuildWorldTexturePack(*data, wads, cache_dir + "python-cmpr", &missing,
+                                              quake ? palette.data() : nullptr);
       if (!pack)
       {
-        Warn(fmt::format("{}: not a readable BSP v30 map", s.rel));
+        Warn(fmt::format("{}: not a readable BSP map", s.rel));
         continue;
       }
       if (!missing.empty())

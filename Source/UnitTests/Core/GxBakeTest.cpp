@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include <algorithm>
+#include <cstdlib>
 #include <cstring>
 #include <string>
 #include <tuple>
@@ -15,6 +16,8 @@
 #include "GxBake/Encode.h"
 #include "GxBake/GoldSrc.h"
 #include "GxBake/Md5.h"
+#include "GxBake/Quake.h"
+#include "GxBake/Studio.h"
 
 namespace
 {
@@ -295,6 +298,145 @@ std::vector<u8> GsSprite(u32 w, u32 h, u32 tex, s32 ox, s32 oy, int seed)
   return out;
 }
 
+// Quake fixtures: miptex without palettes, a v1 sprite and an alias model.
+std::vector<u8> QkMiptex(const std::string& name, u32 w, u32 h, int seed)
+{
+  const u32 n = w * h;
+  std::vector<u8> out = GsName(name);
+  for (u32 v : {w, h, 40u, 40 + n, 40 + n + n / 4, 40 + n + n / 4 + n / 16})
+    Put(&out, v);
+  Append(&out, GsIndices(w, h, seed));
+  out.resize(out.size() + n / 4 + n / 16 + n / 64, 0);
+  return out;
+}
+
+std::vector<u8> QkWad2()
+{
+  const std::vector<std::pair<std::string, std::vector<u8>>> lumps = {
+      {"brick", QkMiptex("brick", 64, 32, 31)},
+      {"{grate", QkMiptex("{grate", 16, 16, 32)},
+      {"odd", QkMiptex("odd", 24, 40, 33)}};
+  std::vector<u8> data = {'W', 'A', 'D', '2'};
+  Put(&data, static_cast<u32>(lumps.size()));
+  Put(&data, 0);
+  std::vector<u8> table;
+  for (const auto& [name, body] : lumps)
+  {
+    Put(&table, static_cast<u32>(data.size()));
+    Put(&table, static_cast<u32>(body.size()));
+    Put(&table, static_cast<u32>(body.size()));
+    table.push_back(0x44);
+    table.push_back(0);
+    Put(&table, 0, 2);
+    Append(&table, GsName(name));
+    Append(&data, body);
+  }
+  const u32 table_offset = static_cast<u32>(data.size());
+  for (int i = 0; i < 4; i++)
+    data[8 + i] = static_cast<u8>(table_offset >> (8 * i));
+  Append(&data, table);
+  return data;
+}
+
+// A Quake (v29) map: two world textures, a liquid and a sky, all in its own texture lump.
+std::vector<u8> QkMap()
+{
+  const std::string ents = "{\n\"classname\" \"worldspawn\"\n\"message\" \"test\"\n}\n";
+  const std::vector<std::vector<u8>> mips = {QkMiptex("wall", 32, 32, 41),
+                                             QkMiptex("*water", 16, 16, 42),
+                                             QkMiptex("sky1", 32, 16, 43),
+                                             QkMiptex("floor", 48, 24, 44)};
+  std::vector<u8> textures;
+  Put(&textures, static_cast<u32>(mips.size()));
+  u32 offset = 4 + 4 * static_cast<u32>(mips.size());
+  for (const auto& m : mips)
+  {
+    Put(&textures, offset);
+    offset += static_cast<u32>(m.size());
+  }
+  for (const auto& m : mips)
+    Append(&textures, m);
+  std::vector<u8> data;
+  Put(&data, 29);
+  data.resize(4 + 15 * 8, 0);
+  const u32 ent_offset = static_cast<u32>(data.size());
+  data.insert(data.end(), ents.begin(), ents.end());
+  const u32 tex_offset = static_cast<u32>(data.size());
+  Append(&data, textures);
+  for (int i = 0; i < 4; i++)
+  {
+    data[4 + i] = static_cast<u8>(ent_offset >> (8 * i));
+    data[8 + i] = static_cast<u8>(ents.size() >> (8 * i));
+    data[20 + i] = static_cast<u8>(tex_offset >> (8 * i));
+    data[24 + i] = static_cast<u8>(textures.size() >> (8 * i));
+  }
+  return data;
+}
+
+std::vector<u8> QkSprite()
+{
+  std::vector<u8> out = {'I', 'D', 'S', 'P'};
+  Put(&out, 1);
+  Put(&out, 2);
+  Put(&out, 0x41A00000);  // radius 20.0f
+  for (u32 v : {32u, 16u, 1u, 0u, 0u})
+    Put(&out, v);
+  for (u32 v : {0u, static_cast<u32>(-16), 8u, 32u, 16u})
+    Put(&out, v);
+  std::vector<u8> px = GsIndices(32, 16, 51);
+  for (size_t i = 0; i < px.size(); i += 3)
+    px[i] = 255;
+  Append(&out, px);
+  return out;
+}
+
+// A Quake alias model: a 37x23 skin (fitted to 64x32), on-seam vertices and two frames.
+std::vector<u8> QkAlias()
+{
+  constexpr u32 sw = 37, sh = 23, nv = 8;
+  std::vector<u8> out = {'I', 'D', 'P', 'O'};
+  Put(&out, 6);
+  for (u32 f : {0x3E800000u, 0x3F000000u, 0x3E000000u})  // scale 0.25, 0.5, 0.125
+    Put(&out, f);
+  for (u32 f : {0xC1200000u, 0xC1A00000u, 0xC0A00000u})  // origin -10, -20, -5
+    Put(&out, f);
+  Put(&out, 0x41F00000);  // radius 30
+  for (u32 f : {0u, 0u, 0x41B00000u})
+    Put(&out, f);
+  for (u32 v : {1u, sw, sh, nv, 8u, 2u, 0u, 0u})
+    Put(&out, v);
+  Put(&out, 0x3F800000);
+  Put(&out, 0);  // a single skin
+  Append(&out, GsIndices(sw, sh, 61));
+  for (u32 v = 0; v < nv; v++)
+  {
+    Put(&out, v % 3 == 0 ? 1 : 0);
+    Put(&out, (v * 5 + 2) % (sw / 2));
+    Put(&out, (v * 7 + 1) % sh);
+  }
+  const u32 tris[8][4] = {{1, 0, 1, 2}, {0, 2, 1, 3}, {1, 4, 5, 6}, {0, 5, 6, 7},
+                          {1, 0, 4, 7}, {0, 1, 3, 5}, {1, 2, 6, 3}, {0, 0, 7, 2}};
+  for (const auto& t : tris)
+  {
+    for (u32 v : t)
+      Put(&out, v);
+  }
+  for (u32 f = 0; f < 2; f++)
+  {
+    Put(&out, 0);
+    Put(&out, 0);
+    Put(&out, 0);
+    Append(&out, GsName("frame" + std::to_string(f)));
+    for (u32 v = 0; v < nv; v++)
+    {
+      for (u32 k = 0; k < 3; k++)
+        out.push_back(static_cast<u8>((v * 37 + k * 91 + f * 13 + 7) & 255));
+      out.push_back(0);
+    }
+  }
+  return out;
+}
+
 void WritePng(const std::string& path, const GxBake::RgbaImage& img)
 {
   File::CreateFullPath(path);
@@ -349,13 +491,57 @@ TEST(GxBake, GoldSrcMatchesPythonTool)
   ASSERT_TRUE(plain_skins.has_value());
   EXPECT_EQ(Md5Of(*plain_skins), "49242b00db35a41a505c54281a656f2c");
 
-  // Quake sprites and WAD2 files are left to the Python tool.
-  std::vector<u8> quake_sprite = GsSprite(16, 16, 0, 0, 0, 1);
-  quake_sprite[4] = 1;
-  EXPECT_TRUE(GxBake::SpriteNeedsPython(quake_sprite));
-  std::vector<u8> wad2 = GsWad();
-  wad2[3] = '2';
-  EXPECT_FALSE(GxBake::BuildWadTexturePack(wad2, "").has_value());
+  // A WAD2 file needs Quake's palette.
+  EXPECT_FALSE(GxBake::BuildWadTexturePack(QkWad2(), "").has_value());
+}
+
+TEST(GxBake, QuakeMatchesPythonTool)
+{
+  // The palette the Python tool finds as gfx/palette.lmp next to the fixtures.
+  const std::vector<u8> palette = GsPalette(71);
+  if (const char* dir = std::getenv("GXBAKE_FIXTURE_DIR"))
+  {
+    // Writes the fixtures for `gxbake convert`, to refresh the reference hashes.
+    const auto write = [&](const std::string& rel, const std::vector<u8>& data) {
+      const std::string path = std::string(dir) + "/id1/" + rel;
+      File::CreateFullPath(path);
+      File::WriteStringToFile(path, std::string(data.begin(), data.end()));
+    };
+    write("gfx/palette.lmp", palette);
+    write("sprites/q1.spr", QkSprite());
+    write("quake.wad", QkWad2());
+    write("maps/e1m1.bsp", QkMap());
+    write("progs/thing.mdl", QkAlias());
+  }
+
+  const auto sprite = GxBake::QuakeSpriteToHl(QkSprite(), palette);
+  ASSERT_TRUE(sprite.has_value());
+  const auto lean = GxBake::LeanHlSprite(*sprite);
+  ASSERT_TRUE(lean.has_value());
+  EXPECT_EQ(Md5Of(*lean), "1c3f1c8f943bc4a54c7f5d5004f49d1f");
+
+  const auto wad = GxBake::BuildWadTexturePack(QkWad2(), "", palette.data());
+  ASSERT_TRUE(wad.has_value());
+  EXPECT_EQ(Md5Of(*wad), "3da34373f95174d4900b485332219cd1");
+
+  const auto info = GxBake::ReadBspInfo(QkMap());
+  ASSERT_TRUE(info.has_value());
+  EXPECT_EQ(info->version, 29);
+  std::vector<std::string> missing;
+  const auto world = GxBake::BuildWorldTexturePack(QkMap(), {}, "", &missing, palette.data());
+  ASSERT_TRUE(world.has_value());
+  EXPECT_TRUE(missing.empty());
+  EXPECT_EQ(Md5Of(*world), "df7e855382215898a6fee9ae260afdc5");
+
+  auto model = GxBake::ImportAliasModel(QkAlias(), "thing", palette, true);
+  ASSERT_TRUE(model.has_value());
+  ASSERT_EQ(model->warnings.size(), 1u);  // two frames, the first converted
+  std::string error;
+  const auto mdl = GxBake::BuildStudioMdl(*model, &error);
+  ASSERT_TRUE(mdl.has_value()) << error;
+  EXPECT_EQ(Md5Of(*mdl), "927af53891007d422eb3bd996b890fc0");
+  EXPECT_EQ(Md5Of(*GxBake::LeanStudioMesh(*mdl)), "44ee5bb6516ba81310a7c313d0475eed");
+  EXPECT_EQ(Md5Of(*GxBake::StudioSkinCompanion(*mdl)), "313976fdfa0a65e733cfc60156c2ddfe");
 }
 
 TEST(GxBake, GctRoundTrip)

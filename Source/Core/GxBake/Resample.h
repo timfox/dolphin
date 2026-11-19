@@ -23,6 +23,11 @@ enum class Filter
 std::vector<uint8_t> Resize(const std::vector<uint8_t>& src, int width, int height, int channels,
                             int out_width, int out_height, Filter filter);
 
+// Image.resize() on an "RGBA" image: Pillow premultiplies alpha ("RGBa"), resamples, and divides it
+// back out (Nearest resamples the RGBA values directly).
+std::vector<uint8_t> ResizeRgba(const std::vector<uint8_t>& src, int width, int height,
+                                int out_width, int out_height, Filter filter);
+
 // Nearest-neighbour resize of a boolean mask (Pillow mode "1").
 std::vector<uint8_t> ResizeMaskNearest(const std::vector<uint8_t>& src, int width, int height,
                                        int out_width, int out_height);

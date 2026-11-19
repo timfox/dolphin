@@ -537,8 +537,11 @@
     <ClInclude Include="GxBake\Encode.h" />
     <ClInclude Include="GxBake\GoldSrc.h" />
     <ClInclude Include="GxBake\Md5.h" />
+    <ClInclude Include="GxBake\PilQuant.h" />
     <ClInclude Include="GxBake\Process.h" />
+    <ClInclude Include="GxBake\Quake.h" />
     <ClInclude Include="GxBake\Resample.h" />
+    <ClInclude Include="GxBake\Studio.h" />
     <ClInclude Include="InputCommon\ControllerEmu\Control\Control.h" />
     <ClInclude Include="InputCommon\ControllerEmu\Control\Input.h" />
     <ClInclude Include="InputCommon\ControllerEmu\Control\Output.h" />
@@ -1254,8 +1257,11 @@
     <ClCompile Include="GxBake\Encode.cpp" />
     <ClCompile Include="GxBake\GoldSrc.cpp" />
     <ClCompile Include="GxBake\Md5.cpp" />
+    <ClCompile Include="GxBake\PilQuant.cpp" />
     <ClCompile Include="GxBake\Process.cpp" />
+    <ClCompile Include="GxBake\Quake.cpp" />
     <ClCompile Include="GxBake\Resample.cpp" />
+    <ClCompile Include="GxBake\Studio.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\Control\Control.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\Control\Input.cpp" />
     <ClCompile Include="InputCommon\ControllerEmu\Control\Output.cpp" />

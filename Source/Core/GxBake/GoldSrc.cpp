@@ -121,6 +121,26 @@ std::optional<Miptex> ReadMiptex(const std::vector<uint8_t>& data, int64_t offse
   return Miptex{w, h, data.data() + offset + m0, data.data() + end + 2};
 }
 
+// goldsrc.read_miptex: a WAD3/BSP miptex, else (with |quake_palette|) a palette-less Quake one
+// (quake.quake_miptex).
+std::optional<Miptex> ReadMiptex(const std::vector<uint8_t>& data, int64_t offset,
+                                 const uint8_t* quake_palette)
+{
+  if (auto mip = ReadMiptex(data, offset))
+    return mip;
+  if (!quake_palette || !Has(data, offset, 28))
+    return std::nullopt;
+  const uint32_t w = U32(data, offset + 16);
+  const uint32_t h = U32(data, offset + 20);
+  const uint32_t m0 = U32(data, offset + 24);
+  if (!m0 || !w || !h || static_cast<uint64_t>(w) * h > (1u << 20) ||
+      offset + m0 + static_cast<int64_t>(w) * h > static_cast<int64_t>(data.size()))
+  {
+    return std::nullopt;
+  }
+  return Miptex{w, h, data.data() + offset + m0, quake_palette};
+}
+
 // gct.wt_cache_key
 std::string CacheKey(uint32_t w, uint32_t h, const uint8_t* pixels, const uint8_t* palette,
                      bool alpha)
@@ -559,9 +579,10 @@ std::optional<std::vector<uint8_t>> StudioSkinCompanion(const std::vector<uint8_
 
 std::optional<BspInfo> ReadBspInfo(const std::vector<uint8_t>& bsp)
 {
-  if (bsp.size() < 4 || S32(bsp, 0) != 30)
+  if (bsp.size() < 4 || (S32(bsp, 0) != 30 && S32(bsp, 0) != 29))
     return std::nullopt;
   BspInfo info;
+  info.version = S32(bsp, 0);
 
   // goldsrc.wt_bsp_wad_basenames
   if (const auto ents = EntitiesText(bsp, 8192))
@@ -638,7 +659,8 @@ const WadIndex::Lump* WadIndex::Find(const std::string& name) const
 std::optional<std::vector<uint8_t>> BuildWorldTexturePack(const std::vector<uint8_t>& bsp,
                                                           const WadIndex& wads,
                                                           const std::string& cache_dir,
-                                                          std::vector<std::string>* missing)
+                                                          std::vector<std::string>* missing,
+                                                          const uint8_t* quake_palette)
 {
   const auto names = MiptexOffsets(bsp);
   if (!names)
@@ -653,7 +675,7 @@ std::optional<std::vector<uint8_t>> BuildWorldTexturePack(const std::vector<uint
       continue;
     if (!seen.insert(name).second)
       continue;
-    auto mip = ReadMiptex(bsp, offset);
+    auto mip = ReadMiptex(bsp, offset, quake_palette);
     if (!mip)
     {
       if (const WadIndex::Lump* lump = wads.Find(name))
@@ -751,22 +773,21 @@ std::optional<std::vector<uint8_t>> LeanHlSprite(const std::vector<uint8_t>& d, 
   return out;
 }
 
-bool SpriteNeedsPython(const std::vector<uint8_t>& d)
-{
-  if (d.size() >= 4 && std::memcmp(d.data(), "IDS2", 4) == 0)
-    return true;  // Quake II
-  return d.size() >= 8 && std::memcmp(d.data(), "IDSP", 4) == 0 && S32(d, 4) == 1;  // Quake
-}
-
 bool IsWad3(const std::vector<uint8_t>& d)
 {
   return d.size() >= 4 && std::memcmp(d.data(), "WAD3", 4) == 0;
 }
 
-std::optional<std::vector<uint8_t>> BuildWadTexturePack(const std::vector<uint8_t>& data,
-                                                        const std::string& cache_dir)
+bool IsWad2(const std::vector<uint8_t>& d)
 {
-  if (!IsWad3(data))
+  return d.size() >= 4 && std::memcmp(d.data(), "WAD2", 4) == 0;
+}
+
+std::optional<std::vector<uint8_t>> BuildWadTexturePack(const std::vector<uint8_t>& data,
+                                                        const std::string& cache_dir,
+                                                        const uint8_t* quake_palette)
+{
+  if (!IsWad3(data) && !(IsWad2(data) && quake_palette))
     return std::nullopt;
   const auto lumps = WadDirectory(data);
   if (!lumps)
@@ -786,16 +807,16 @@ std::optional<std::vector<uint8_t>> BuildWadTexturePack(const std::vector<uint8_
   std::vector<GctEntry> entries;
   for (const auto& [name, offset] : miptex)
   {
-    const auto mip = ReadMiptex(data, offset);
+    const auto mip = ReadMiptex(data, offset, quake_palette);
     if (!mip)
       continue;
     entries.push_back(MakeEntry(name, mip->width, mip->height, mip->pixels, mip->palette,
                                 name.starts_with("{"), cache_dir));
   }
 
-  // goldsrc.wad_pictures: HUD pictures and console fonts (gfx.wad, fonts.wad).
+  // goldsrc.wad_pictures: HUD pictures and console fonts (gfx.wad, fonts.wad), WAD3 only.
   std::set<std::string> picture_names;
-  for (const WadLump& l : *lumps)
+  for (const WadLump& l : IsWad3(data) ? *lumps : std::vector<WadLump>{})
   {
     const int kind = static_cast<uint8_t>(l.kind);
     if ((kind != 0x42 && kind != 0x46) || l.compressed || picture_names.contains(l.name))

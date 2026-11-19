@@ -14,6 +14,7 @@
 #include <QFormLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
+#include <QItemSelectionModel>
 #include <QLabel>
 #include <QLineEdit>
 #include <QMenu>
@@ -45,16 +46,19 @@ bool IsBootable(const QFileInfo& info)
 // File type icons for the project tree.
 class ProjectFileIconProvider final : public QAbstractFileIconProvider
 {
+  // Folders are tinted like the devkit concept's tree, so they stand out from files.
+  static QIcon FolderIcon() { return IconSet::Get("folder", QColor(QStringLiteral("#ffc857"))); }
+
 public:
   QIcon icon(IconType type) const override
   {
-    return type == Folder ? IconSet::Get("folder") : IconSet::Get("file");
+    return type == Folder ? FolderIcon() : IconSet::Get("file");
   }
 
   QIcon icon(const QFileInfo& info) const override
   {
     if (info.isDir())
-      return IconSet::Get("folder");
+      return FolderIcon();
 
     const QString suffix = info.suffix().toLower();
     static const QStringList code = {QStringLiteral("c"),   QStringLiteral("cpp"),
@@ -164,6 +168,10 @@ ProjectWidget::ProjectWidget(DevkitProject* project, QWidget* parent)
   m_tree->setAnimated(true);
   m_tree->setContextMenuPolicy(Qt::CustomContextMenu);
   connect(m_tree, &QTreeView::activated, this, &ProjectWidget::OnActivated);
+  connect(m_tree->selectionModel(), &QItemSelectionModel::currentChanged, this,
+          [this](const QModelIndex& current) {
+            emit FileSelected(current.isValid() ? m_model->filePath(current) : QString());
+          });
   connect(m_tree, &QTreeView::customContextMenuRequested, this, &ProjectWidget::ShowContextMenu);
 
   open_layout->addWidget(header);
@@ -201,7 +209,7 @@ void ProjectWidget::OnActivated(const QModelIndex& index)
   if (IsBootable(info))
     emit BootRequested(info.absoluteFilePath());
   else
-    QDesktopServices::openUrl(QUrl::fromLocalFile(info.absoluteFilePath()));
+    emit OpenFileRequested(info.absoluteFilePath(), 0);
 }
 
 void ProjectWidget::ShowContextMenu(const QPoint& pos)
@@ -221,6 +229,8 @@ void ProjectWidget::ShowContextMenu(const QPoint& pos)
   }
   if (info.isFile())
   {
+    menu.addAction(IconSet::Get("file-code"), tr("Open in Editor"), this,
+                   [this, info] { emit OpenFileRequested(info.absoluteFilePath(), 0); });
     menu.addAction(IconSet::Get("file-lines"), tr("Open with Default App"), this, [info] {
       QDesktopServices::openUrl(QUrl::fromLocalFile(info.absoluteFilePath()));
     });
@@ -308,10 +318,10 @@ DiagnosticsWidget::DiagnosticsWidget(BuildDiagnostic::Severity severity, QWidget
   m_list->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
   m_list->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   m_list->header()->setStretchLastSection(true);
-  connect(m_list, &QTreeWidget::itemActivated, this, [](QTreeWidgetItem* item) {
+  connect(m_list, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem* item) {
     const QString path = item->data(0, Qt::UserRole).toString();
     if (QFileInfo::exists(path))
-      QDesktopServices::openUrl(QUrl::fromLocalFile(path));
+      emit OpenFileRequested(path, item->data(1, Qt::UserRole).toInt());
   });
   setWidget(m_list);
 
@@ -334,6 +344,7 @@ void DiagnosticsWidget::Add(const BuildDiagnostic& diagnostic, const QString& pr
       {QDir(project_dir).relativeFilePath(absolute),
        diagnostic.line > 0 ? QString::number(diagnostic.line) : QString(), diagnostic.message});
   item->setData(0, Qt::UserRole, absolute);
+  item->setData(1, Qt::UserRole, diagnostic.line);
   item->setToolTip(2, diagnostic.message);
   item->setIcon(0, m_severity == BuildDiagnostic::Severity::Error ?
                        IconSet::Get("circle-xmark", QColor(QStringLiteral("#ff6b9d"))) :
@@ -356,7 +367,7 @@ ProjectSettingsDialog::ProjectSettingsDialog(DevkitProject* project, QWidget* pa
     : QDialog(parent), m_project(project)
 {
   setWindowTitle(tr("Project Settings - %1").arg(project->GetName()));
-  setMinimumWidth(520);
+  setMinimumWidth(560);
 
   m_build = new QLineEdit(project->GetBuildCommand());
   m_clean = new QLineEdit(project->GetCleanCommand());
@@ -373,6 +384,12 @@ ProjectSettingsDialog::ProjectSettingsDialog(DevkitProject* project, QWidget* pa
     if (!file.isEmpty())
       m_run_target->setText(QDir(m_project->GetPath()).relativeFilePath(file));
   });
+  m_editor = new QLineEdit(project->GetEditorCommand());
+  m_editor->setPlaceholderText(tr("Auto: VS Code if installed, else the default app"));
+  m_editor->setToolTip(
+      tr("Command used to open source files and build errors. %f is replaced by the file and "
+         "%l by the line, e.g. \"code -g %f:%l\" or \"subl %f:%l\"."));
+
   auto* const run_row = new QHBoxLayout;
   run_row->addWidget(m_run_target);
   run_row->addWidget(browse);
@@ -381,6 +398,7 @@ ProjectSettingsDialog::ProjectSettingsDialog(DevkitProject* project, QWidget* pa
   form->addRow(tr("Build command:"), m_build);
   form->addRow(tr("Clean command:"), m_clean);
   form->addRow(tr("Run target:"), run_row);
+  form->addRow(tr("Open files with:"), m_editor);
 
   auto* const note =
       new QLabel(tr("Commands run in the project folder through the system shell. Settings are "
@@ -407,4 +425,5 @@ void ProjectSettingsDialog::Save()
   m_project->SetBuildCommand(m_build->text().trimmed());
   m_project->SetCleanCommand(m_clean->text().trimmed());
   m_project->SetRunTarget(m_run_target->text().trimmed());
+  m_project->SetEditorCommand(m_editor->text().trimmed());
 }

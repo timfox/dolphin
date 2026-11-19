@@ -30,6 +30,10 @@ signals:
   void SettingsRequested();
   // A bootable file (DOL/ELF/disc image) was activated in the tree.
   void BootRequested(const QString& path);
+  // A non-bootable file was activated in the tree. |line| is 0 when there's no line to jump to.
+  void OpenFileRequested(const QString& path, int line);
+  // The selected file or folder in the tree changed. Empty when nothing is selected.
+  void FileSelected(const QString& path);
 
 private:
   void OnProjectChanged();
@@ -58,7 +62,8 @@ private:
   QPlainTextEdit* m_text;
 };
 
-// "Warnings" / "Errors" dock: a list of parsed diagnostics. Activating one opens the file.
+// "Warnings" / "Errors" dock: a list of parsed diagnostics. Activating one opens the file at the
+// diagnostic's line.
 class DiagnosticsWidget final : public QDockWidget
 {
   Q_OBJECT
@@ -67,6 +72,9 @@ public:
 
   void Clear();
   void Add(const BuildDiagnostic& diagnostic, const QString& project_dir);
+
+signals:
+  void OpenFileRequested(const QString& path, int line);
 
 private:
   void UpdateTitle();
@@ -89,4 +97,5 @@ private:
   QLineEdit* m_build;
   QLineEdit* m_clean;
   QLineEdit* m_run_target;
+  QLineEdit* m_editor;
 };

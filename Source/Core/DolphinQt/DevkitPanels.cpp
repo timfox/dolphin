@@ -3,10 +3,15 @@
 
 #include "DolphinQt/DevkitPanels.h"
 
+#include <QDateTime>
+#include <QDir>
+#include <QFile>
+#include <QFileInfo>
 #include <QGridLayout>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QLabel>
+#include <QLocale>
 #include <QScrollArea>
 #include <QTableWidget>
 #include <QToolButton>
@@ -14,6 +19,7 @@
 
 #include <fmt/format.h>
 
+#include "Common/CommonTypes.h"
 #include "Core/Config/MainSettings.h"
 #include "Core/ConfigManager.h"
 #include "Core/Core.h"
@@ -290,6 +296,163 @@ void PropertyInspectorWidget::SetGameFile(const std::shared_ptr<const UICommon::
   AddRow(tr("Path"), str(game->GetFilePath()));
 }
 
+namespace
+{
+QString DescribeFileType(const QFileInfo& info)
+{
+  if (info.isDir())
+    return QObject::tr("Folder");
+
+  const QString suffix = info.suffix().toLower();
+  if (suffix == QStringLiteral("dol"))
+    return QObject::tr("GameCube/Wii executable (DOL)");
+  if (suffix == QStringLiteral("elf"))
+    return QObject::tr("ELF executable");
+  if (suffix == QStringLiteral("gcm") || suffix == QStringLiteral("iso"))
+    return QObject::tr("Disc image");
+  if (suffix == QStringLiteral("rvz") || suffix == QStringLiteral("gcz") ||
+      suffix == QStringLiteral("wia") || suffix == QStringLiteral("ciso") ||
+      suffix == QStringLiteral("wbfs"))
+  {
+    return QObject::tr("Compressed disc image");
+  }
+  if (suffix == QStringLiteral("c"))
+    return QObject::tr("C source");
+  if (suffix == QStringLiteral("cpp") || suffix == QStringLiteral("cc") ||
+      suffix == QStringLiteral("cxx"))
+  {
+    return QObject::tr("C++ source");
+  }
+  if (suffix == QStringLiteral("h") || suffix == QStringLiteral("hpp"))
+    return QObject::tr("Header");
+  if (suffix == QStringLiteral("s"))
+    return QObject::tr("Assembly source");
+  if (suffix == QStringLiteral("ld"))
+    return QObject::tr("Linker script");
+  if (suffix == QStringLiteral("tpl"))
+    return QObject::tr("Texture palette (TPL)");
+  if (suffix == QStringLiteral("png") || suffix == QStringLiteral("bmp") ||
+      suffix == QStringLiteral("jpg") || suffix == QStringLiteral("tga"))
+  {
+    return QObject::tr("Image");
+  }
+  if (suffix == QStringLiteral("wav") || suffix == QStringLiteral("dsp") ||
+      suffix == QStringLiteral("adp") || suffix == QStringLiteral("ogg") ||
+      suffix == QStringLiteral("mp3"))
+  {
+    return QObject::tr("Audio");
+  }
+  if (info.fileName() == QStringLiteral("Makefile") || suffix == QStringLiteral("mk"))
+    return QObject::tr("Makefile");
+  if (suffix == QStringLiteral("sh"))
+    return QObject::tr("Shell script");
+  if (suffix == QStringLiteral("ini"))
+    return QObject::tr("Settings");
+  if (suffix.isEmpty())
+    return QObject::tr("File");
+  return QObject::tr("%1 file").arg(suffix.toUpper());
+}
+
+u32 ReadBE32(const QByteArray& data, int offset)
+{
+  const auto* const p = reinterpret_cast<const unsigned char*>(data.constData()) + offset;
+  return (u32(p[0]) << 24) | (u32(p[1]) << 16) | (u32(p[2]) << 8) | u32(p[3]);
+}
+
+QString Hex32(u32 value)
+{
+  return QStringLiteral("0x%1").arg(value, 8, 16, QLatin1Char('0'));
+}
+}  // namespace
+
+void PropertyInspectorWidget::SetProjectFile(const QString& path, const QString& project_root,
+                                             bool is_run_target)
+{
+  m_table->setRowCount(0);
+
+  const QFileInfo info(path);
+  if (path.isEmpty() || !info.exists())
+  {
+    m_selected->setText(tr("Selected: (none)"));
+    return;
+  }
+
+  m_selected->setText(tr("Selected: %1").arg(info.fileName()));
+  AddRow(tr("Name"), info.fileName());
+  AddRow(tr("Type"), DescribeFileType(info));
+  AddRow(tr("Path"), QDir(project_root).relativeFilePath(info.absoluteFilePath()));
+
+  if (info.isDir())
+  {
+    const QDir dir(info.absoluteFilePath());
+    AddRow(tr("Folders"),
+           QString::number(dir.entryList(QDir::Dirs | QDir::NoDotAndDotDot).count()));
+    AddRow(tr("Files"), QString::number(dir.entryList(QDir::Files).count()));
+  }
+  else
+  {
+    AddRow(tr("File Size"), QStringLiteral("%1 (%2 bytes)")
+                                .arg(QString::fromStdString(UICommon::FormatSize(info.size())))
+                                .arg(QLocale().toString(info.size())));
+  }
+  AddRow(tr("Modified"), QLocale().toString(info.lastModified(), QLocale::ShortFormat));
+
+  const QString suffix = info.suffix().toLower();
+  if (suffix == QStringLiteral("dol") || suffix == QStringLiteral("elf"))
+    AddRow(tr("Run Target"), is_run_target ? tr("Yes") : tr("No"));
+
+  QFile file(info.absoluteFilePath());
+  if (suffix == QStringLiteral("dol") && file.open(QIODevice::ReadOnly))
+  {
+    // DOL header: 7 text + 11 data section file offsets, load addresses and sizes, then the BSS
+    // address and size and the entry point.
+    const QByteArray header = file.read(0x100);
+    if (header.size() == 0x100)
+    {
+      constexpr int TEXT_SECTIONS = 7;
+      constexpr int DATA_SECTIONS = 11;
+      u32 text_size = 0, data_size = 0;
+      int text_count = 0, data_count = 0;
+      for (int i = 0; i < TEXT_SECTIONS + DATA_SECTIONS; ++i)
+      {
+        const u32 size = ReadBE32(header, 0x90 + i * 4);
+        if (size == 0)
+          continue;
+        if (i < TEXT_SECTIONS)
+        {
+          ++text_count;
+          text_size += size;
+        }
+        else
+        {
+          ++data_count;
+          data_size += size;
+        }
+      }
+      AddRow(tr("Entry Point"), Hex32(ReadBE32(header, 0xE0)));
+      AddRow(tr("Text Sections"),
+             tr("%1 (%2)").arg(text_count).arg(
+                 QString::fromStdString(UICommon::FormatSize(text_size))));
+      AddRow(tr("Data Sections"),
+             tr("%1 (%2)").arg(data_count).arg(
+                 QString::fromStdString(UICommon::FormatSize(data_size))));
+      AddRow(tr("BSS"), tr("%1, %2").arg(Hex32(ReadBE32(header, 0xD8)))
+                            .arg(QString::fromStdString(
+                                UICommon::FormatSize(ReadBE32(header, 0xDC)))));
+    }
+  }
+  else if (suffix == QStringLiteral("elf") && file.open(QIODevice::ReadOnly))
+  {
+    // 32-bit big-endian PowerPC ELF: the entry point is at 0x18.
+    const QByteArray header = file.read(0x34);
+    if (header.size() == 0x34 && header.startsWith("\x7f" "ELF") && header[4] == 1 &&
+        header[5] == 2)
+    {
+      AddRow(tr("Entry Point"), Hex32(ReadBE32(header, 0x18)));
+    }
+  }
+}
+
 // ---------------------------------------------------------------------------------------------
 // DockTitleBar
 
@@ -324,7 +487,12 @@ DockTitleBar::DockTitleBar(QDockWidget* dock, std::string_view icon) : QWidget(d
   connect(dock, &QDockWidget::featuresChanged, this, &DockTitleBar::UpdateButtons);
   connect(dock, &QDockWidget::topLevelChanged, this, &DockTitleBar::UpdateButtons);
 
-  auto* const layout = new QHBoxLayout(this);
+  m_contents = new QWidget;
+  auto* const outer_layout = new QHBoxLayout(this);
+  outer_layout->setContentsMargins(0, 0, 0, 0);
+  outer_layout->addWidget(m_contents);
+
+  auto* const layout = new QHBoxLayout(m_contents);
   layout->setContentsMargins(10, 5, 6, 5);
   layout->setSpacing(8);
   layout->addWidget(icon_label);
@@ -334,6 +502,23 @@ DockTitleBar::DockTitleBar(QDockWidget* dock, std::string_view icon) : QWidget(d
   layout->addWidget(m_close_button);
 
   UpdateButtons();
+}
+
+void DockTitleBar::SetCompact(bool compact)
+{
+  if (compact == m_compact)
+    return;
+  m_compact = compact;
+  m_contents->setVisible(!compact);
+  if (compact)
+  {
+    setFixedHeight(0);
+  }
+  else
+  {
+    setMinimumHeight(0);
+    setMaximumHeight(QWIDGETSIZE_MAX);
+  }
 }
 
 void DockTitleBar::UpdateButtons()

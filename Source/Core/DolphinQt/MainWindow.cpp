@@ -19,6 +19,7 @@
 #include <QStyleHints>
 #include <QTabBar>
 #include <QTimer>
+#include <QToolButton>
 #include <QVBoxLayout>
 #include <QWindow>
 
@@ -26,6 +27,7 @@
 
 #include <future>
 #include <optional>
+#include <set>
 #include <utility>
 #include <variant>
 
@@ -55,6 +57,7 @@
 #include "Core/Config/NetplaySettings.h"
 #include "Core/Config/UISettings.h"
 #include "Core/Config/WiimoteSettings.h"
+#include "Core/ConfigManager.h"
 #include "Core/Core.h"
 #include "Core/FreeLookManager.h"
 #include "Core/HW/DVD/DVDInterface.h"
@@ -627,6 +630,20 @@ void MainWindow::CreateDevkitPanels()
   connect(m_project_widget, &ProjectWidget::BootRequested, this,
           [this](const QString& path) { StartGame(path, ScanForSecondDisc::No); });
   connect(m_project, &DevkitProject::ProjectChanged, this, &MainWindow::UpdateProjectActions);
+  connect(m_project_widget, &ProjectWidget::FileSelected, this, [this](const QString& path) {
+    const QString run_target = m_project->ResolveRunTarget();
+    m_property_inspector_widget->SetProjectFile(
+        path, m_project->GetPath(),
+        !run_target.isEmpty() && QFileInfo(path) == QFileInfo(run_target));
+  });
+  const auto open_in_editor = [this](const QString& path, int line) {
+    m_project->OpenInEditor(path, line);
+  };
+  connect(m_project_widget, &ProjectWidget::OpenFileRequested, this, open_in_editor);
+  connect(m_warnings_widget, &DiagnosticsWidget::OpenFileRequested, this, open_in_editor);
+  connect(m_errors_widget, &DiagnosticsWidget::OpenFileRequested, this, open_in_editor);
+  connect(&Settings::Instance(), &Settings::EmulationStateChanged, this,
+          &MainWindow::UpdateWindowTitle);
 
   connect(m_builder, &DevkitBuilder::OutputLine, m_build_output_widget,
           &BuildOutputWidget::AppendLine);
@@ -717,6 +734,28 @@ void MainWindow::UpdateProjectActions()
   m_tool_bar->SetProjectState(open, building);
   m_project_menu->menuAction()->setVisible(m_editor_layout_active);
   m_tool_bar->SetProjectActionsVisible(m_editor_layout_active);
+  UpdateWindowTitle();
+}
+
+void MainWindow::UpdateWindowTitle()
+{
+  if (!m_editor_layout_active)
+  {
+    setWindowTitle(QStringLiteral("GameCube"));
+    return;
+  }
+
+  // Like the devkit concept: "GameCube DevKit • <project> • Target: <title>".
+  QStringList parts = {tr("GameCube DevKit")};
+  if (m_project->IsOpen())
+    parts.append(m_project->GetName());
+  if (Core::GetState(m_system) != Core::State::Uninitialized)
+  {
+    const QString game_id = QString::fromStdString(SConfig::GetInstance().GetGameID());
+    if (!game_id.isEmpty())
+      parts.append(tr("Target: %1").arg(game_id));
+  }
+  setWindowTitle(parts.join(QStringLiteral(" \u2022 ")));
 }
 
 void MainWindow::NewProject()
@@ -859,20 +898,74 @@ void MainWindow::RefreshDockTabIcons()
 {
   // QMainWindow's dock tab bars don't show dock icons on their own. Each tab stores the address of
   // its dock widget as tab data, which lets us match tabs to docks.
+  const auto dock_for_tab = [this](const QTabBar* tab_bar, int index) -> QDockWidget* {
+    const auto dock_address = tab_bar->tabData(index).value<quintptr>();
+    for (const auto& [dock, icon] : m_dock_icons)
+    {
+      if (reinterpret_cast<quintptr>(dock) == dock_address)
+        return dock;
+    }
+    return nullptr;
+  };
+
+  std::set<QDockWidget*> tabbed_docks;
   for (QTabBar* const tab_bar : findChildren<QTabBar*>(Qt::FindDirectChildrenOnly))
   {
+    // QMainWindow keeps unused tab bars around hidden; their tabs are stale.
+    const bool in_use = !tab_bar->isHidden() && tab_bar->count() > 1;
     for (int i = 0; i < tab_bar->count(); ++i)
     {
-      const auto dock_address = tab_bar->tabData(i).value<quintptr>();
-      for (const auto& [dock, icon] : m_dock_icons)
+      QDockWidget* const dock = dock_for_tab(tab_bar, i);
+      if (dock == nullptr)
+        continue;
+
+      tab_bar->setTabIcon(i, dock->windowIcon());
+      if (in_use)
+        tabbed_docks.insert(dock);
+
+      // In the editor layout the tab is the panel's only header, so it carries the close button.
+      QWidget* const close_button = tab_bar->tabButton(i, QTabBar::RightSide);
+      const bool ours =
+          close_button != nullptr && close_button->property("devkitTabClose").toBool();
+      const bool wants_close = m_editor_layout_active && in_use &&
+                               dock->features().testFlag(QDockWidget::DockWidgetClosable);
+      if (wants_close && close_button == nullptr)
       {
-        if (reinterpret_cast<quintptr>(dock) == dock_address)
-        {
-          tab_bar->setTabIcon(i, dock->windowIcon());
-          break;
-        }
+        auto* const button = new QToolButton(tab_bar);
+        button->setObjectName(QStringLiteral("dockTabCloseButton"));
+        button->setProperty("devkitTabClose", true);
+        button->setIcon(IconSet::Get("xmark"));
+        button->setIconSize(QSize(10, 10));
+        button->setAutoRaise(true);
+        button->setFocusPolicy(Qt::NoFocus);
+        button->setToolTip(tr("Close this panel"));
+        connect(button, &QToolButton::clicked, this, [this, tab_bar, button, dock_for_tab] {
+          // Tabs get reused as the layout changes, so look up the tab's dock when clicked.
+          for (int tab = 0; tab < tab_bar->count(); ++tab)
+          {
+            if (tab_bar->tabButton(tab, QTabBar::RightSide) != button)
+              continue;
+            if (QDockWidget* const tab_dock = dock_for_tab(tab_bar, tab))
+              tab_dock->close();
+            break;
+          }
+        });
+        tab_bar->setTabButton(i, QTabBar::RightSide, button);
+      }
+      else if (!wants_close && ours)
+      {
+        tab_bar->setTabButton(i, QTabBar::RightSide, nullptr);
+        close_button->deleteLater();
       }
     }
+  }
+
+  // A docked panel in a tab group doesn't need its own title bar as well: the tab shows the same
+  // icon and title, and dragging the tab moves the panel.
+  for (const auto& [dock, icon] : m_dock_icons)
+  {
+    if (auto* const title_bar = qobject_cast<DockTitleBar*>(dock->titleBarWidget()))
+      title_bar->SetCompact(!dock->isFloating() && tabbed_docks.contains(dock));
   }
 }
 
@@ -1896,7 +1989,7 @@ void MainWindow::HideRenderWidget(bool reinit, bool is_exit)
   {
     m_game_view_widget->DetachRenderWidget(m_render_widget);
     m_rendering_to_main = false;
-    setWindowTitle(QStringLiteral("GameCube"));
+    UpdateWindowTitle();
   }
   else if (m_rendering_to_main)
   {
@@ -1906,7 +1999,7 @@ void MainWindow::HideRenderWidget(bool reinit, bool is_exit)
     m_render_widget->setParent(nullptr);
     m_rendering_to_main = false;
     m_stack->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Preferred);
-    setWindowTitle(QStringLiteral("GameCube"));
+    UpdateWindowTitle();
   }
 
   // The following code works around a driver bug that would lead to Dolphin crashing when changing

@@ -164,6 +164,7 @@ private:
   void CreateDevkitPanels();
   void CreateProjectMenu();
   void UpdateProjectActions();
+  void UpdateWindowTitle();
   void NewProject();
   void OpenProject();
   void OpenProjectForExecutable(const QString& executable_path);

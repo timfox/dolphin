@@ -453,6 +453,18 @@ QToolButton#dockTitleButton:hover {
 	border-color: #5fe3ff;
 }
 
+QToolButton#dockTabCloseButton {
+	background: transparent;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	padding: 1px;
+	margin-left: 4px;
+}
+QToolButton#dockTabCloseButton:hover {
+	background: #6656bf;
+	border-color: #5fe3ff;
+}
+
 /* Editor layout: Project panel and build output */
 QWidget#projectHeader {
 	background: #171229;
@@ -474,4 +486,5 @@ QPlainTextEdit#buildOutputText {
 /* Main toolbar buttons: a little tighter so the editor's extra buttons fit */
 QToolBar#toolbar QToolButton {
 	padding: 4px 6px;
+	min-width: 42px;
 }

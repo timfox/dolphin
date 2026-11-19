@@ -153,16 +153,10 @@ void ToolBar::MakeActions()
   addWidget(spacer);
   addWidget(new TargetStatusWidget(this));
 
-  // Give the buttons a common minimum width so the row looks even, without padding short labels
-  // out to the width of the longest one.
-  for (QAction* const action : actions())
-  {
-    if (QWidget* const widget = widgetForAction(action); widget && action->isSeparator() == false &&
-                                                         !action->text().isEmpty())
-    {
-      widget->setMinimumWidth(56);
-    }
-  }
+  // Note: don't give the buttons a fixed minimum width. QToolBar shrinks buttons down to their
+  // minimum width when the row doesn't fit, which elides the labels ("Scr...hot"); with the
+  // buttons' own size hint as the minimum, overflowing buttons move to the toolbar's extension
+  // menu instead. The theme's stylesheet evens out the button widths.
 }
 
 void ToolBar::UpdatePausePlayButtonState(const bool playing_state)

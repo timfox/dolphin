@@ -47,6 +47,14 @@ public:
   void SetBuildCommand(const QString& command);
   void SetCleanCommand(const QString& command);
   void SetRunTarget(const QString& target);
+  // Command that opens a file in the user's editor, with %f for the file and %l for the line.
+  // Empty means auto-detect.
+  QString GetEditorCommand() const;
+  void SetEditorCommand(const QString& command);
+
+  // Opens |path| in the configured editor, at |line| when the editor supports it (0 = no line).
+  // Falls back to the system's default app for the file.
+  void OpenInEditor(const QString& path, int line) const;
 
   // The run target as an absolute path: the configured one, or else the most recently modified
   // .dol/.elf in the project. Empty if nothing has been built yet.

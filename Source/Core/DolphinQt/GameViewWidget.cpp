@@ -25,8 +25,8 @@ GameViewWidget::GameViewWidget(QWidget* parent) : QDockWidget(parent)
   setObjectName(QStringLiteral("gameview"));
   setAllowedAreas(Qt::AllDockWidgetAreas);
 
-  m_placeholder_text = tr("No game running\n\nPress Run to build and boot your project, or "
-                                "double-click a title in the Game Library.");
+  m_placeholder_text = tr("No game running\n\nPress Run (Ctrl+R) to build and boot your "
+                          "project, or double-click a title in the Game Library.");
   m_placeholder = new QLabel(m_placeholder_text);
   m_placeholder->setObjectName(QStringLiteral("gameViewPlaceholder"));
   m_placeholder->setAlignment(Qt::AlignCenter);

@@ -63,8 +63,8 @@ private:
   QVBoxLayout* m_layout;
 };
 
-// "Property Inspector" dock: a Property/Value table describing the title selected in the game
-// library.
+// "Property Inspector" dock: a Property/Value table describing what's selected, either a title in
+// the game library or a file in the open project.
 class PropertyInspectorWidget final : public QDockWidget
 {
   Q_OBJECT
@@ -72,6 +72,8 @@ public:
   explicit PropertyInspectorWidget(QWidget* parent = nullptr);
 
   void SetGameFile(const std::shared_ptr<const UICommon::GameFile>& game);
+  // Describes a file or folder in the project at |project_root|. An empty |path| clears it.
+  void SetProjectFile(const QString& path, const QString& project_root, bool is_run_target);
 
 private:
   void AddRow(const QString& property, const QString& value);
@@ -87,10 +89,16 @@ class DockTitleBar final : public QWidget
 public:
   DockTitleBar(QDockWidget* dock, std::string_view icon);
 
+  // A compact title bar takes up no space. Used while the dock sits in a tab group, where the tab
+  // already shows the panel's icon and title.
+  void SetCompact(bool compact);
+
 private:
   void UpdateButtons();
 
   QDockWidget* m_dock;
+  QWidget* m_contents;
+  bool m_compact = false;
   QLabel* m_title;
   QToolButton* m_float_button;
   QToolButton* m_close_button;

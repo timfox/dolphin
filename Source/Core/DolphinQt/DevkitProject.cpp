@@ -3,8 +3,10 @@
 
 #include "DolphinQt/DevkitProject.h"
 
+#include <algorithm>
 #include <cstdlib>
 
+#include <QDesktopServices>
 #include <QDir>
 #include <QDirIterator>
 #include <QFile>
@@ -12,6 +14,8 @@
 #include <QProcess>
 #include <QRegularExpression>
 #include <QSettings>
+#include <QStandardPaths>
+#include <QUrl>
 
 #include "DolphinQt/Settings.h"
 
@@ -298,6 +302,42 @@ void DevkitProject::SetCleanCommand(const QString& command)
 void DevkitProject::SetRunTarget(const QString& target)
 {
   WriteSetting(QStringLiteral("run/target"), target);
+}
+
+QString DevkitProject::GetEditorCommand() const
+{
+  return ReadSetting(QStringLiteral("editor/command"), QString());
+}
+
+void DevkitProject::SetEditorCommand(const QString& command)
+{
+  WriteSetting(QStringLiteral("editor/command"), command);
+}
+
+void DevkitProject::OpenInEditor(const QString& path, int line) const
+{
+  QStringList args = QProcess::splitCommand(GetEditorCommand());
+  if (args.isEmpty())
+  {
+    // Auto-detect: VS Code can jump straight to a line.
+    const QString code = QStandardPaths::findExecutable(QStringLiteral("code"));
+    if (!code.isEmpty())
+      args = {code, QStringLiteral("-g"), QStringLiteral("%f:%l")};
+  }
+
+  if (!args.isEmpty())
+  {
+    for (QString& arg : args)
+    {
+      arg.replace(QStringLiteral("%f"), path);
+      arg.replace(QStringLiteral("%l"), QString::number(std::max(line, 1)));
+    }
+    const QString program = args.takeFirst();
+    if (QProcess::startDetached(program, args, IsOpen() ? m_path : QString()))
+      return;
+  }
+
+  QDesktopServices::openUrl(QUrl::fromLocalFile(path));
 }
 
 QString DevkitProject::ResolveRunTarget() const

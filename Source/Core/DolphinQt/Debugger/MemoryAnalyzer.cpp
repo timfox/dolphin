@@ -400,6 +400,10 @@ void MemoryAnalyzer::Reset()
   m_heaps.clear();
   for (auto& mask : m_heap_page_allocated)
     mask.clear();
+  m_blocks.clear();
+  m_blocks_truncated = false;
+  m_block_first_seen.clear();
+  m_mark.reset();
   m_history.clear();
   m_heap_symbols = false;
   m_has_data = false;
@@ -650,6 +654,9 @@ void MemoryAnalyzer::ReadHeaps(Core::System& system)
   m_heaps.clear();
   for (auto& mask : m_heap_page_allocated)
     mask.clear();
+  m_blocks.clear();
+  m_blocks_truncated = false;
+  std::unordered_map<u64, double> first_seen;
 
   // OSAlloc keeps its heaps in a static array. Its symbols are only known when the game's symbol
   // map is loaded (always the case for homebrew built with symbols).
@@ -686,6 +693,20 @@ void MemoryAnalyzer::ReadHeaps(Core::System& system)
         {
           heap.allocated += *cell_size;
           ++heap.allocated_blocks;
+          if (m_blocks.size() < MAX_TRACKED_BLOCKS)
+          {
+            // A block is identified by its address and size; a block freed and reallocated at
+            // the same place with the same size counts as the same block.
+            const u64 key = (u64(NormalizeAddress(cell)) << 32) | *cell_size;
+            const auto seen = m_block_first_seen.find(key);
+            const double since = seen != m_block_first_seen.end() ? seen->second : m_time;
+            first_seen[key] = since;
+            m_blocks.push_back({NormalizeAddress(cell), *cell_size, i, since});
+          }
+          else
+          {
+            m_blocks_truncated = true;
+          }
           const u32 address = NormalizeAddress(cell);
           for (int s = 0; s < MEMORY_SPACE_COUNT; ++s)
           {
@@ -720,6 +741,48 @@ void MemoryAnalyzer::ReadHeaps(Core::System& system)
     heap.end = high;
     m_heaps.push_back(heap);
   }
+  m_block_first_seen = std::move(first_seen);
+}
+
+QByteArray MemoryAnalyzer::PeekBytes(u32 address, u32 length) const
+{
+  if (!m_has_data)
+    return {};
+  auto& memory = Core::System::GetInstance().GetMemory();
+  address = NormalizeAddress(address);
+  const u32 offset = address & 0x0FFFFFFF;
+  const u8* base = nullptr;
+  u32 size = 0;
+  if ((address & 0xF0000000) == MEM1_BASE)
+  {
+    base = memory.GetRAM();
+    size = memory.GetRamSizeReal();
+  }
+  else if ((address & 0xF0000000) == MEM2_BASE && m_is_wii)
+  {
+    base = memory.GetEXRAM();
+    size = memory.GetExRamSizeReal();
+  }
+  if (!base || offset >= size)
+    return {};
+  length = std::min(length, size - offset);
+  return QByteArray(reinterpret_cast<const char*>(base + offset), static_cast<int>(length));
+}
+
+void MemoryAnalyzer::SetMark()
+{
+  if (!m_has_data)
+    return;
+  MemoryUsageSample mark = m_history.empty() ? MemoryUsageSample{} : m_history.back();
+  mark.time = m_time;
+  m_mark = mark;
+  emit Updated();
+}
+
+void MemoryAnalyzer::ClearMark()
+{
+  m_mark.reset();
+  emit Updated();
 }
 
 void MemoryAnalyzer::ReadStacks(Core::System& system)

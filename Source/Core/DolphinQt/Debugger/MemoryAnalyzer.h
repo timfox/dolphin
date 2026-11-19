@@ -7,10 +7,12 @@
 #include <deque>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #include <QColor>
 #include <QElapsedTimer>
+#include <QByteArray>
 #include <QObject>
 #include <QString>
 
@@ -103,6 +105,15 @@ struct HeapInfo
   bool current = false;
 };
 
+// One allocated OSAlloc block (cell), including its header.
+struct HeapBlock
+{
+  u32 address = 0;
+  u32 size = 0;
+  int heap = 0;
+  double first_seen = 0;  // Analyzer time the block was first seen
+};
+
 struct MemoryUsageSample
 {
   double time = 0;  // Seconds since the analyzer started sampling this session
@@ -162,6 +173,23 @@ public:
   const std::vector<ThreadStackInfo>& GetStacks() const { return m_stacks; }
   const std::vector<HeapInfo>& GetHeaps() const { return m_heaps; }
   bool HasHeapSymbols() const { return m_heap_symbols; }
+  // Allocated blocks across all heaps (capped at MAX_TRACKED_BLOCKS).
+  const std::vector<HeapBlock>& GetBlocks() const { return m_blocks; }
+  bool AreBlocksTruncated() const { return m_blocks_truncated; }
+  static constexpr size_t MAX_TRACKED_BLOCKS = 50000;
+
+  // A mark is a point in time to compare against: blocks allocated after it and still alive are
+  // "new since mark", which is how leaks show up.
+  void SetMark();
+  void ClearMark();
+  const std::optional<MemoryUsageSample>& GetMark() const { return m_mark; }
+  bool IsNewSinceMark(const HeapBlock& block) const
+  {
+    return m_mark && block.first_seen > m_mark->time;
+  }
+  double GetTime() const { return m_time; }
+  // Reads up to |length| bytes of MEM1/MEM2 at |address| (empty if it's not RAM).
+  QByteArray PeekBytes(u32 address, u32 length) const;
   const std::deque<MemoryUsageSample>& GetHistory() const { return m_history; }
 
 signals:
@@ -202,6 +230,10 @@ private:
   std::array<SpaceState, MEMORY_SPACE_COUNT> m_spaces;
   std::vector<ThreadStackInfo> m_stacks;
   std::vector<HeapInfo> m_heaps;
+  std::vector<HeapBlock> m_blocks;
+  bool m_blocks_truncated = false;
+  std::unordered_map<u64, double> m_block_first_seen;
+  std::optional<MemoryUsageSample> m_mark;
   // Per space, pages covered by allocated heap blocks.
   std::array<std::vector<u8>, MEMORY_SPACE_COUNT> m_heap_page_allocated;
   bool m_heap_symbols = false;

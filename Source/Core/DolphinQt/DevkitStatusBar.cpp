@@ -3,6 +3,8 @@
 
 #include "DolphinQt/DevkitStatusBar.h"
 
+#include <array>
+
 #include <QHBoxLayout>
 #include <QLabel>
 #include <QTimer>
@@ -15,6 +17,7 @@
 #include "Core/System.h"
 #include "DolphinQt/IconSet.h"
 #include "DolphinQt/Settings.h"
+#include "Core/HW/VideoInterface.h"
 #include "VideoCommon/PerformanceMetrics.h"
 
 DevkitStatusBar::DevkitStatusBar(QWidget* parent) : QStatusBar(parent)
@@ -29,6 +32,7 @@ DevkitStatusBar::DevkitStatusBar(QWidget* parent) : QStatusBar(parent)
   m_title = AddSegment("gamepad");
   m_cpu = AddSegment("microchip");
   m_mem = AddSegment("memory");
+  m_vi = AddSegment("tv");
   m_backend = AddSegment("display");
   m_speed = AddSegment("gauge-high");
   m_fps = AddSegment("film");
@@ -140,8 +144,29 @@ void DevkitStatusBar::RefreshLive()
   {
     m_speed->setText(tr("Speed: --"));
     m_fps->setText(tr("-- FPS"));
+    m_vi->setText(tr("VI: --"));
     return;
   }
+
+  // The game can switch video modes at any time, so this is refreshed with the live values.
+  const auto& vi = system.GetVideoInterface();
+  const u32 width = vi.GetModeWidth();
+  const u32 height = vi.GetModeHeight();
+  static constexpr std::array<const char*, 4> formats = {"NTSC", "PAL", "MPAL", "Debug"};
+  if (width == 0 || height == 0)
+  {
+    m_vi->setText(tr("VI: off"));
+  }
+  else
+  {
+    m_vi->setText(tr("VI: %1\u00d7%2%3 (%4)")
+                      .arg(width)
+                      .arg(height)
+                      .arg(vi.IsInterlacedMode() ? QStringLiteral("i") : QStringLiteral("p"))
+                      .arg(QString::fromLatin1(formats[vi.GetVideoFormat() & 3])));
+  }
+  m_vi->parentWidget()->setToolTip(
+      tr("Video interface mode, %1 Hz").arg(vi.GetTargetRefreshRate(), 0, 'f', 2));
 
   const auto& metrics = system.GetPerfMetrics();
   m_speed->setText(tr("Speed: %1%").arg(metrics.GetSpeed() * 100.0, 0, 'f', 0));

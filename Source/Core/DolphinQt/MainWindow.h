@@ -45,6 +45,7 @@ class DevkitProject;
 class DevkitStatusBar;
 class DiagnosticsWidget;
 class FrameCaptureWidget;
+class GXStateWidget;
 class ProjectWidget;
 class PropertyInspectorWidget;
 class TargetToolsWidget;
@@ -305,6 +306,7 @@ private:
   DiagnosticsWidget* m_errors_widget = nullptr;
   RenderProfilerWidget* m_render_profiler_widget = nullptr;
   FrameCaptureWidget* m_frame_capture_widget = nullptr;
+  GXStateWidget* m_gx_state_widget = nullptr;
   QMenu* m_recent_projects_menu = nullptr;
   QMenu* m_project_menu = nullptr;
   QAction* m_close_project_action = nullptr;

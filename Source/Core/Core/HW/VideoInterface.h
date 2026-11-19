@@ -392,6 +392,13 @@ public:
   // Not adjusted by VBI Clock Override.
   u32 GetNominalTicksPerHalfLine() const;
 
+  // The current video mode, for display: the XFB width, the visible lines per frame (both fields
+  // when interlaced), interlacing and the format (0: NTSC, 1: PAL, 2: MPAL, 3: debug).
+  u32 GetModeWidth() const;
+  u32 GetModeHeight() const;
+  bool IsInterlacedMode() const;
+  u32 GetVideoFormat() const;
+
   // Get the aspect ratio of VI's active area (rarely matching pure 4:3).
   // This function only deals with standard aspect ratios. For widescreen aspect ratios, multiply
   // the result by 1.33333... (the ratio between 16:9 and 4:3)

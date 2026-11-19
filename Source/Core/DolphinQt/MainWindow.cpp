@@ -113,6 +113,7 @@
 #include "DolphinQt/DevkitBuildPanels.h"
 #include "DolphinQt/DevkitPanels.h"
 #include "DolphinQt/DevkitRenderProfiler.h"
+#include "DolphinQt/DevkitGXState.h"
 #include "DolphinQt/DevkitPackager.h"
 #include "DolphinQt/DevkitProject.h"
 #include "DolphinQt/DevkitStatusBar.h"
@@ -494,6 +495,7 @@ void MainWindow::CreateComponents()
   m_errors_widget = new DiagnosticsWidget(BuildDiagnostic::Severity::Error, this);
   m_render_profiler_widget = new RenderProfilerWidget(this);
   m_frame_capture_widget = new FrameCaptureWidget(this);
+  m_gx_state_widget = new GXStateWidget(this);
 
   for (int i = 0; i < 4; i++)
   {
@@ -597,6 +599,7 @@ void MainWindow::CreateDevkitPanels()
       {m_property_inspector_widget, "table-list"},
       {m_render_profiler_widget, "chart-line"},
       {m_frame_capture_widget, "crosshairs"},
+      {m_gx_state_widget, "palette"},
       {m_memory_widget, "memory"},
       {m_memory_map_widget, "map"},
       {m_memory_usage_widget, "chart-area"},
@@ -654,6 +657,13 @@ void MainWindow::CreateDevkitPanels()
                    m_frame_capture_widget->show();
                    m_frame_capture_widget->raise();
                    m_frame_capture_widget->RequestCapture();
+                 });
+  tools->AddTool("palette", tr("GX / TEV State"),
+                 tr("TEV stages and combiners, sampled textures, blending and depth state."),
+                 [this] {
+                   m_gx_state_widget->show();
+                   m_gx_state_widget->raise();
+                   m_gx_state_widget->Refresh();
                  });
   tools->AddTool("cubes", tr("GX / FIFO Player"),
                  tr("Record and replay graphics FIFO logs to inspect GX command streams."),
@@ -1418,7 +1428,8 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
                               static_cast<QDockWidget*>(m_errors_widget),
                               static_cast<QDockWidget*>(m_memory_usage_widget),
                               static_cast<QDockWidget*>(m_render_profiler_widget),
-                              static_cast<QDockWidget*>(m_frame_capture_widget)})
+                              static_cast<QDockWidget*>(m_frame_capture_widget),
+                              static_cast<QDockWidget*>(m_gx_state_widget)})
     {
       addDockWidget(Qt::BottomDockWidgetArea, dock);
     }
@@ -1445,6 +1456,7 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     removeDockWidget(m_memory_usage_widget);
     removeDockWidget(m_render_profiler_widget);
     removeDockWidget(m_frame_capture_widget);
+    removeDockWidget(m_gx_state_widget);
     m_devkit_status_bar->hide();
     m_log_widget->setWindowTitle(tr("Log"));
     m_game_library_dock->setWidget(nullptr);
@@ -1478,7 +1490,7 @@ void MainWindow::ResetEditorLayout()
   // and the console (log) tabbed with the CPU state panels along the bottom.
   QDockWidget* const center_tabs[] = {m_memory_map_widget, m_memory_widget, m_code_widget,
                                       m_jit_widget,        m_assembler_widget,
-                                      m_frame_capture_widget};
+                                      m_frame_capture_widget, m_gx_state_widget};
   // Tall panels (threads, network, log config) go in the full-height right column so the default
   // layout fits on a 1080p screen.
   QDockWidget* const inspector_tabs[] = {m_property_inspector_widget, m_thread_widget,
@@ -1505,7 +1517,8 @@ void MainWindow::ResetEditorLayout()
         static_cast<QDockWidget*>(m_memory_map_widget),
         static_cast<QDockWidget*>(m_memory_usage_widget),
         static_cast<QDockWidget*>(m_render_profiler_widget),
-        static_cast<QDockWidget*>(m_frame_capture_widget)})
+        static_cast<QDockWidget*>(m_frame_capture_widget),
+        static_cast<QDockWidget*>(m_gx_state_widget)})
   {
     dock->setFloating(false);
   }
@@ -1535,7 +1548,8 @@ void MainWindow::ResetEditorLayout()
                             static_cast<QDockWidget*>(m_memory_map_widget),
                             static_cast<QDockWidget*>(m_memory_usage_widget),
                             static_cast<QDockWidget*>(m_render_profiler_widget),
-                            static_cast<QDockWidget*>(m_frame_capture_widget)})
+                            static_cast<QDockWidget*>(m_frame_capture_widget),
+        static_cast<QDockWidget*>(m_gx_state_widget)})
   {
     dock->show();
   }
@@ -1643,6 +1657,11 @@ void MainWindow::RestoreLayoutState()
       if (!restoreDockWidget(m_frame_capture_widget))
       {
         tabifyDockWidget(m_game_view_widget, m_frame_capture_widget);
+        m_game_view_widget->raise();
+      }
+      if (!restoreDockWidget(m_gx_state_widget))
+      {
+        tabifyDockWidget(m_game_view_widget, m_gx_state_widget);
         m_game_view_widget->raise();
       }
     }

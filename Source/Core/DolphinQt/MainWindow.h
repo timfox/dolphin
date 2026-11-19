@@ -58,6 +58,7 @@ class MappingWindow;
 class MemoryAnalyzer;
 class MemoryMapWidget;
 class MemoryUsageWidget;
+class XashMemoryWidget;
 class MemoryWidget;
 class MenuBar;
 class NetPlayDialog;
@@ -167,8 +168,6 @@ private:
   void SetEditorLayoutEnabled(bool enabled);
   void ResetEditorLayout();
   void CreateDevkitPanels();
-  // Docks the memory panels in an editor layout saved before they existed.
-  void PlaceNewEditorPanels();
   void CreateProjectMenu();
   void UpdateProjectActions();
   void UpdateWindowTitle();
@@ -296,6 +295,7 @@ private:
   MemoryAnalyzer* m_memory_analyzer = nullptr;
   MemoryMapWidget* m_memory_map_widget = nullptr;
   MemoryUsageWidget* m_memory_usage_widget = nullptr;
+  XashMemoryWidget* m_xash_memory_widget = nullptr;
   BuildOutputWidget* m_build_output_widget = nullptr;
   DiagnosticsWidget* m_warnings_widget = nullptr;
   DiagnosticsWidget* m_errors_widget = nullptr;

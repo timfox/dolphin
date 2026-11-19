@@ -8,8 +8,10 @@
 #include <limits>
 #include <variant>
 
+#include <QDir>
 #include <QFile>
 #include <QFileInfo>
+#include <QSettings>
 #include <QTimer>
 
 #include "Common/Swap.h"
@@ -342,6 +344,175 @@ std::optional<ExecutableLayout> MemoryAnalyzer::ReadExecutableLayout(const BootP
   return std::nullopt;
 }
 
+std::string MemoryAnalyzer::GetBootPath(const BootParameters& params)
+{
+  if (const auto* executable = std::get_if<BootParameters::Executable>(&params.parameters))
+    return executable->path;
+  if (const auto* disc = std::get_if<BootParameters::Disc>(&params.parameters))
+    return disc->path;
+  return {};
+}
+
+void MemoryAnalyzer::SetBootPath(const std::string& path, const std::string& game_id)
+{
+  m_boot_path = path;
+  m_game_id = game_id;
+  m_symbol_candidates.clear();
+  m_candidates_searched = false;
+  // Symbols belong to one program. A file picked by hand is remembered for this boot path and
+  // comes back through the candidate search, which checks it against the code in RAM first.
+  m_xash_reader.SetSymbols(std::nullopt);
+  m_engine_symbols_status.clear();
+}
+
+static QString EngineSymbolsSettingsKey(const std::string& game_id, const std::string& boot_path)
+{
+  const std::string key = game_id.empty() ? boot_path : game_id;
+  return QStringLiteral("debugger/enginesymbols/") +
+         QString::fromUtf8(QByteArray::fromStdString(key).toHex());
+}
+
+QString MemoryAnalyzer::LoadEngineSymbols(const QString& elf_path)
+{
+  auto table = LoadElfSymbolTable(elf_path);
+  if (!table)
+    return tr("%1 has no symbol table. Pick the unstripped ELF the build writes before stripping "
+              "(xash3d-gc: build/engine/xash).")
+        .arg(QFileInfo(elf_path).fileName());
+
+  Core::System& system = Core::System::GetInstance();
+  const Core::State state = Core::GetState(system);
+  if ((state == Core::State::Running || state == Core::State::Paused) &&
+      !table->entry_code.isEmpty())
+  {
+    const QByteArray running = PeekBytes(table->entry_point, table->entry_code.size());
+    if (running != table->entry_code)
+    {
+      return tr("%1 doesn't match the running program (the code at its entry point %2 is "
+                "different). Rebuild the disc, or pick the ELF it was made from.")
+          .arg(QFileInfo(elf_path).fileName())
+          .arg(table->entry_point, 8, 16, QLatin1Char('0'));
+    }
+  }
+
+  m_engine_symbols_status = tr("%1 symbols from %2")
+                                .arg(table->symbols.size())
+                                .arg(QDir::toNativeSeparators(elf_path));
+  m_xash_reader.SetSymbols(std::move(table));
+  Settings::GetQSettings().setValue(EngineSymbolsSettingsKey(m_game_id, m_boot_path), elf_path);
+  if (m_has_data)
+    SampleNow();
+  return {};
+}
+
+void MemoryAnalyzer::UnloadEngineSymbols()
+{
+  m_xash_reader.SetSymbols(std::nullopt);
+  m_engine_symbols_status.clear();
+  Settings::GetQSettings().remove(EngineSymbolsSettingsKey(m_game_id, m_boot_path));
+  if (m_has_data)
+    SampleNow();
+}
+
+QString MemoryAnalyzer::GetEngineSymbolsPath() const
+{
+  const auto& symbols = m_xash_reader.GetSymbols();
+  return symbols ? symbols->path : QString();
+}
+
+// Looks for an unstripped ELF beside what was booted: the booted ELF itself, foo.elf next to
+// foo.dol, the path used last time for this game, and xash3d-gc's build tree (OUT/... next to
+// build/engine/xash).
+void MemoryAnalyzer::TryEngineSymbolCandidates(Core::System& system)
+{
+  if (m_xash_reader.GetSymbols() || m_boot_path.empty())
+    return;
+
+  if (!m_candidates_searched)
+  {
+    m_candidates_searched = true;
+    QStringList paths;
+    const QString remembered =
+        Settings::GetQSettings().value(EngineSymbolsSettingsKey(m_game_id, m_boot_path)).toString();
+    if (!remembered.isEmpty())
+      paths << remembered;
+
+    const QFileInfo boot(QString::fromStdString(m_boot_path));
+    const QString suffix = boot.suffix().toLower();
+    if (suffix == QStringLiteral("elf"))
+      paths << boot.absoluteFilePath();
+    paths << boot.absolutePath() + QLatin1Char('/') + boot.completeBaseName() +
+                 QStringLiteral(".elf");
+    QDir dir = boot.absoluteDir();
+    for (int up = 0; up < 3; ++up)
+    {
+      paths << dir.absoluteFilePath(QStringLiteral("build/engine/xash"));
+      if (!dir.cdUp())
+        break;
+    }
+
+    QStringList seen;
+    for (const QString& path : paths)
+    {
+      const QString clean = QDir::cleanPath(path);
+      if (seen.contains(clean) || !QFileInfo(clean).isFile())
+        continue;
+      seen << clean;
+      if (auto table = LoadElfSymbolTable(clean))
+        m_symbol_candidates.push_back(std::move(*table));
+    }
+  }
+
+  // The program has to be in RAM before its code can be compared, so keep trying.
+  for (auto it = m_symbol_candidates.begin(); it != m_symbol_candidates.end(); ++it)
+  {
+    if (it->entry_code.isEmpty() ||
+        PeekBytes(it->entry_point, it->entry_code.size()) != it->entry_code)
+    {
+      continue;
+    }
+    m_engine_symbols_status = tr("%1 symbols from %2 (found automatically)")
+                                  .arg(it->symbols.size())
+                                  .arg(QDir::toNativeSeparators(it->path));
+    m_xash_reader.SetSymbols(std::move(*it));
+    m_symbol_candidates.clear();
+    return;
+  }
+  (void)system;
+}
+
+void MemoryAnalyzer::SampleXash(Core::System& system)
+{
+  TryEngineSymbolCandidates(system);
+  m_xash = m_xash_reader.Read(system);
+  if (!m_xash || !m_xash->pools_valid)
+    return;
+
+  std::unordered_map<QString, u64> pools;
+  for (const Xash::Pool& pool : m_xash->pools)
+    pools[pool.name] += pool.real;
+
+  const QString map = m_xash->map.isEmpty() ? tr("(none)") : m_xash->map;
+  if (m_xash_visits.empty() || m_xash_visits.back().map != map)
+  {
+    XashMapVisit visit;
+    visit.map = map;
+    visit.entered = m_time;
+    visit.zone_at_entry = m_xash->zone_real;
+    m_xash_visits.push_back(std::move(visit));
+    constexpr size_t MAX_VISITS = 200;
+    if (m_xash_visits.size() > MAX_VISITS)
+      m_xash_visits.erase(m_xash_visits.begin());
+  }
+  XashMapVisit& visit = m_xash_visits.back();
+  visit.last_seen = m_time;
+  visit.zone_now = m_xash->zone_real;
+  visit.zone_peak = std::max(visit.zone_peak, m_xash->zone_real);
+  visit.heap_now = m_xash->heap ? m_xash->heap->used : 0;
+  visit.aram_now = m_xash->aram ? m_xash->aram->session_bytes + m_xash->aram->stream_bytes : 0;
+  visit.pools = std::move(pools);
+}
+
 void MemoryAnalyzer::SetExecutableLayout(std::optional<ExecutableLayout> layout)
 {
   m_executable = std::move(layout);
@@ -400,7 +571,15 @@ void MemoryAnalyzer::Reset()
   m_heaps.clear();
   for (auto& mask : m_heap_page_allocated)
     mask.clear();
+  m_blocks.clear();
+  m_blocks_truncated = false;
+  m_block_first_seen.clear();
+  m_mark.reset();
   m_history.clear();
+  m_xash.reset();
+  m_xash_visits.clear();
+  m_xash_mark_pools.clear();
+  m_xash_reader.ClearCache();
   m_heap_symbols = false;
   m_has_data = false;
   m_scanned = false;
@@ -598,11 +777,18 @@ void MemoryAnalyzer::Sample()
     space.regions.clear();
   ReadHeaps(system);
   ReadStacks(system);
+  SampleXash(system);
   BuildMem1Regions(system);
   if (mem2.size)
     BuildMem2Regions(system);
   if (aram.size)
     BuildAramRegions(system);
+  if (m_xash)
+  {
+    BuildXashMem1Regions();
+    if (aram.size)
+      BuildXashAramRegions();
+  }
 
   for (size_t i = 0; i < m_spaces.size(); ++i)
   {
@@ -627,6 +813,14 @@ void MemoryAnalyzer::Sample()
     sample.heap_allocated = allocated;
     sample.heap_size = size;
   }
+  else if (m_xash && m_xash->heap)
+  {
+    // libogc games have no OSAlloc heaps; the C heap is the equivalent.
+    sample.heap_allocated = m_xash->heap->used;
+    sample.heap_size = m_xash->heap->end - m_xash->heap->start;
+  }
+  if (m_xash && m_xash->pools_valid)
+    sample.zone_allocated = m_xash->zone_real;
   for (const ThreadStackInfo& stack : m_stacks)
     sample.stack_peak = std::max<u64>(sample.stack_peak, stack.peak);
 
@@ -650,6 +844,9 @@ void MemoryAnalyzer::ReadHeaps(Core::System& system)
   m_heaps.clear();
   for (auto& mask : m_heap_page_allocated)
     mask.clear();
+  m_blocks.clear();
+  m_blocks_truncated = false;
+  std::unordered_map<u64, double> first_seen;
 
   // OSAlloc keeps its heaps in a static array. Its symbols are only known when the game's symbol
   // map is loaded (always the case for homebrew built with symbols).
@@ -686,6 +883,20 @@ void MemoryAnalyzer::ReadHeaps(Core::System& system)
         {
           heap.allocated += *cell_size;
           ++heap.allocated_blocks;
+          if (m_blocks.size() < MAX_TRACKED_BLOCKS)
+          {
+            // A block is identified by its address and size; a block freed and reallocated at
+            // the same place with the same size counts as the same block.
+            const u64 key = (u64(NormalizeAddress(cell)) << 32) | *cell_size;
+            const auto seen = m_block_first_seen.find(key);
+            const double since = seen != m_block_first_seen.end() ? seen->second : m_time;
+            first_seen[key] = since;
+            m_blocks.push_back({NormalizeAddress(cell), *cell_size, i, since});
+          }
+          else
+          {
+            m_blocks_truncated = true;
+          }
           const u32 address = NormalizeAddress(cell);
           for (int s = 0; s < MEMORY_SPACE_COUNT; ++s)
           {
@@ -720,6 +931,55 @@ void MemoryAnalyzer::ReadHeaps(Core::System& system)
     heap.end = high;
     m_heaps.push_back(heap);
   }
+  m_block_first_seen = std::move(first_seen);
+}
+
+QByteArray MemoryAnalyzer::PeekBytes(u32 address, u32 length) const
+{
+  if (!m_has_data)
+    return {};
+  auto& memory = Core::System::GetInstance().GetMemory();
+  address = NormalizeAddress(address);
+  const u32 offset = address & 0x0FFFFFFF;
+  const u8* base = nullptr;
+  u32 size = 0;
+  if ((address & 0xF0000000) == MEM1_BASE)
+  {
+    base = memory.GetRAM();
+    size = memory.GetRamSizeReal();
+  }
+  else if ((address & 0xF0000000) == MEM2_BASE && m_is_wii)
+  {
+    base = memory.GetEXRAM();
+    size = memory.GetExRamSizeReal();
+  }
+  if (!base || offset >= size)
+    return {};
+  length = std::min(length, size - offset);
+  return QByteArray(reinterpret_cast<const char*>(base + offset), static_cast<int>(length));
+}
+
+void MemoryAnalyzer::SetMark()
+{
+  if (!m_has_data)
+    return;
+  MemoryUsageSample mark = m_history.empty() ? MemoryUsageSample{} : m_history.back();
+  mark.time = m_time;
+  m_mark = mark;
+  m_xash_mark_pools.clear();
+  if (m_xash)
+  {
+    for (const Xash::Pool& pool : m_xash->pools)
+      m_xash_mark_pools[pool.name] += pool.real;
+  }
+  emit Updated();
+}
+
+void MemoryAnalyzer::ClearMark()
+{
+  m_mark.reset();
+  m_xash_mark_pools.clear();
+  emit Updated();
 }
 
 void MemoryAnalyzer::ReadStacks(Core::System& system)
@@ -943,6 +1203,160 @@ void MemoryAnalyzer::BuildAramRegions(Core::System&)
   space.regions.push_back({tr("ARAM"), MemoryRegionKind::Arena, ARAM_RESERVED, space.size, {},
                            tr("Allocated with ARAlloc / AXR; ARAM has no allocator metadata, so "
                               "only page activity is shown")});
+}
+
+void MemoryAnalyzer::BuildXashMem1Regions()
+{
+  SpaceState& space = m_spaces[static_cast<int>(MemorySpace::MEM1)];
+  const u32 mem1_end = space.base + space.size;
+  auto& regions = space.regions;
+  const auto in_space = [&](u32 address) { return address >= space.base && address < mem1_end; };
+  const Xash::Snapshot& xash = *m_xash;
+  const size_t first_engine_region = regions.size();
+
+  if (xash.heap && in_space(xash.heap->start) && xash.heap->end > xash.heap->start)
+  {
+    const Xash::CHeap& heap = *xash.heap;
+    QString note = tr("%1: %2 chunks in use, %3 free; largest free chunk %4 bytes")
+                       .arg(heap.allocator)
+                       .arg(heap.used_chunks)
+                       .arg(heap.free_chunks)
+                       .arg(heap.largest_free);
+    if (!heap.walked)
+      note += tr(" (chunk walk incomplete: the heap changed mid-read)");
+    regions.push_back({tr("C heap"), MemoryRegionKind::Heap, heap.start,
+                       std::min(heap.end, mem1_end), heap.used, note});
+    if (heap.arena_hi > heap.end && in_space(heap.end))
+    {
+      regions.push_back({tr("Unclaimed (heap can grow here)"), MemoryRegionKind::Arena, heap.end,
+                         std::min(heap.arena_hi, mem1_end), {},
+                         tr("Between the heap's break and Arena1Hi")});
+    }
+    auto& allocated = m_heap_page_allocated[static_cast<int>(MemorySpace::MEM1)];
+    allocated.resize(space.size / PAGE_SIZE, 0);
+    for (const auto& [start, end] : heap.used_ranges)
+    {
+      if (!in_space(start) || end <= start)
+        continue;
+      const size_t first = (start - space.base) / PAGE_SIZE;
+      const size_t last = std::min<size_t>((end - 1 - space.base) / PAGE_SIZE, allocated.size() - 1);
+      for (size_t page = first; page <= last; ++page)
+        allocated[page] = 1;
+    }
+  }
+
+  if (xash.map_arena && in_space(xash.map_arena->base))
+  {
+    const Xash::MapArena& arena = *xash.map_arena;
+    regions.push_back({tr("Map-load arena"), MemoryRegionKind::Arena, arena.base,
+                       std::min(arena.base + arena.size, mem1_end), arena.tail_highwater,
+                       tr("BSP staging and tail carves; %1, tail peak %2 bytes")
+                           .arg(arena.in_use ? tr("borrowed") : tr("idle"))
+                           .arg(arena.tail_peak)});
+  }
+  if (xash.boot_arena && in_space(xash.boot_arena->base))
+  {
+    const Xash::BootArena& arena = *xash.boot_arena;
+    regions.push_back({tr("Boot arena"), MemoryRegionKind::Arena, arena.base,
+                       std::min(arena.base + arena.size, mem1_end), arena.live_bytes,
+                       arena.closed ? tr("Closed after the first map load") :
+                                      tr("Boot-time allocations over the idle map-load pad")});
+  }
+  for (const Xash::Pool& pool : xash.pools)
+  {
+    if (!pool.arena || !pool.arena_size || !in_space(pool.arena))
+      continue;
+    regions.push_back({tr("Pool arena: %1").arg(pool.name), MemoryRegionKind::Heap, pool.arena,
+                       std::min(pool.arena + pool.arena_size, mem1_end), pool.arena_offset,
+                       tr("Zone pool with its own arena")});
+  }
+  // The biggest static objects (vid, cl, sv, edict arrays...) within the program's sections.
+  if (m_executable)
+  {
+    constexpr u32 MIN_OBJECT = 64 * 1024;
+    constexpr size_t MAX_OBJECTS = 32;
+    size_t added = 0;
+    for (const auto& [name, symbol] : m_xash_reader.LargeObjects(MIN_OBJECT))
+    {
+      if (added >= MAX_OBJECTS)
+        break;
+      const u32 start = NormalizeAddress(symbol.address);
+      if (!in_space(start))
+        continue;
+      MemoryRegionKind kind = MemoryRegionKind::Data;
+      for (const ExecutableSection& section : m_executable->sections)
+      {
+        if (start >= section.address && start < section.address + section.size)
+          kind = section.kind;
+      }
+      const u32 end = std::min<u32>(start + symbol.size, mem1_end);
+      // The map-load and boot arenas are static buffers too; name them rather than repeat them.
+      const auto same = std::find_if(regions.begin() + first_engine_region, regions.end(),
+                                     [&](const MemoryRegion& region) {
+                                       return region.start == start && region.end == end;
+                                     });
+      if (same != regions.end())
+      {
+        same->note += tr(" (%1)").arg(QString::fromStdString(name));
+        continue;
+      }
+      regions.push_back({QString::fromStdString(name), kind, start, end, {},
+                         tr("Static object (from the ELF symbols)")});
+      ++added;
+    }
+  }
+
+  for (size_t i = first_engine_region; i < regions.size(); ++i)
+    regions[i].nested = true;
+}
+
+void MemoryAnalyzer::BuildXashAramRegions()
+{
+  if (!m_xash->aram)
+    return;
+  SpaceState& space = m_spaces[static_cast<int>(MemorySpace::ARAM)];
+  const Xash::Aram& aram = *m_xash->aram;
+  auto& allocated = m_heap_page_allocated[static_cast<int>(MemorySpace::ARAM)];
+  allocated.assign(space.size / PAGE_SIZE, 0);
+
+  // Replace the generic "ARAM" region with the engine's own block list.
+  std::erase_if(space.regions, [](const MemoryRegion& region) {
+    return region.kind == MemoryRegionKind::Arena;
+  });
+  for (const Xash::AramSegment& segment : aram.segments)
+  {
+    if (segment.offset >= space.size || segment.size == 0)
+      continue;
+    const u32 end = std::min(segment.offset + segment.size, space.size);
+    if (!segment.used)
+    {
+      space.regions.push_back({tr("Free"), MemoryRegionKind::HeapFree, segment.offset, end, {},
+                               tr("Free ARAM (gc_aram_heap)")});
+      continue;
+    }
+    space.regions.push_back(
+        {segment.tag.isEmpty() ? tr("(untagged)") : segment.tag, MemoryRegionKind::Heap,
+         segment.offset, end, segment.size,
+         segment.stream ? tr("Stream block: carved from the top, freed when done") :
+                          tr("Session block: carved from the bottom, held for the whole boot")});
+    for (size_t page = segment.offset / PAGE_SIZE; page < allocated.size() && page * PAGE_SIZE < end;
+         ++page)
+    {
+      allocated[page] = 1;
+    }
+  }
+  for (const Xash::AramAsset& asset : aram.assets)
+  {
+    if (asset.aram == 0 || asset.aram >= space.size)
+      continue;
+    space.regions.push_back({asset.name, MemoryRegionKind::Heap, asset.aram,
+                             std::min(asset.aram + std::max(asset.size, 1u), space.size),
+                             asset.size,
+                             tr("Cached asset%1%2")
+                                 .arg(asset.pins ? tr(", pinned x%1").arg(asset.pins) : QString())
+                                 .arg(asset.ready ? QString() : tr(", still streaming"))});
+    space.regions.back().nested = true;
+  }
 }
 
 void MemoryAnalyzer::ColourPages(SpaceState& space)

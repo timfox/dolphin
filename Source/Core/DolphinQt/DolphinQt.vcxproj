@@ -155,6 +155,8 @@
     <ClCompile Include="Debugger\MemoryAnalyzer.cpp" />
     <ClCompile Include="Debugger\MemoryMapWidget.cpp" />
     <ClCompile Include="Debugger\MemoryUsageWidget.cpp" />
+    <ClCompile Include="Debugger\XashMemory.cpp" />
+    <ClCompile Include="Debugger\XashMemoryWidget.cpp" />
     <ClCompile Include="Debugger\MemoryViewWidget.cpp" />
     <ClCompile Include="Debugger\MemoryWidget.cpp" />
     <ClCompile Include="Debugger\NetworkWidget.cpp" />
@@ -391,6 +393,7 @@
     <QtMoc Include="Debugger\MemoryAnalyzer.h" />
     <QtMoc Include="Debugger\MemoryMapWidget.h" />
     <QtMoc Include="Debugger\MemoryUsageWidget.h" />
+    <QtMoc Include="Debugger\XashMemoryWidget.h" />
     <QtMoc Include="Debugger\MemoryViewWidget.h" />
     <QtMoc Include="Debugger\MemoryWidget.h" />
     <QtMoc Include="Debugger\NetworkWidget.h" />

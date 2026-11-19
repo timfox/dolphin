@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include <QCheckBox>
 #include <QComboBox>
 #include <QFrame>
 #include <QGridLayout>
@@ -14,6 +15,7 @@
 #include <QLabel>
 #include <QPainter>
 #include <QPainterPath>
+#include <QPushButton>
 #include <QSplitter>
 #include <QStackedWidget>
 #include <QTabWidget>
@@ -33,6 +35,12 @@ QString Hex32(u32 value)
 QString FormatBytes(u64 bytes)
 {
   return QString::fromStdString(UICommon::FormatSize(bytes));
+}
+
+QString FormatDelta(s64 bytes)
+{
+  const QString size = FormatBytes(static_cast<u64>(bytes < 0 ? -bytes : bytes));
+  return bytes < 0 ? QStringLiteral("−%1").arg(size) : QStringLiteral("+%1").arg(size);
 }
 
 const QColor IN_USE_COLOR(0x5f, 0xe3, 0xff);
@@ -248,6 +256,15 @@ void MemoryUsageGraph::paintEvent(QPaintEvent*)
   }
   painter.restore();
 
+  // Mark line.
+  if (const auto& mark = m_analyzer->GetMark(); mark && mark->time >= start_time)
+  {
+    const double x = x_for(mark->time);
+    painter.setPen(QPen(palette().color(QPalette::BrightText), 1, Qt::DashLine));
+    painter.drawLine(QPointF(x, plot.top()), QPointF(x, plot.bottom()));
+    painter.drawText(QPointF(x + 4, plot.top() + metrics.ascent()), tr("mark"));
+  }
+
   // Legend.
   painter.setRenderHint(QPainter::Antialiasing, false);
   double x = plot.left();
@@ -309,10 +326,35 @@ MemoryUsageWidget::MemoryUsageWidget(MemoryAnalyzer* analyzer, QWidget* parent)
   heap_layout->addWidget(m_heap_hint);
   heap_layout->addWidget(m_heap_table, 1);
 
+  m_block_table =
+      CreateTable({tr("Block"), tr("Size"), tr("Heap"), tr("Age"), tr("Contents")});
+  m_block_table->setSortingEnabled(true);
+  m_block_table->sortByColumn(1, Qt::DescendingOrder);
+  m_mark_button = new QPushButton(IconSet::Get("location-dot"), tr("Mark"));
+  m_mark_button->setToolTip(
+      tr("Remember this moment. Blocks allocated after it that are still alive are flagged as "
+         "new, and the heap and in-use numbers show the change since the mark: a quick leak "
+         "check across a level load or a scene change."));
+  m_clear_mark_button = new QPushButton(IconSet::Get("xmark"), tr("Clear Mark"));
+  m_new_only = new QCheckBox(tr("Only new since mark"));
+  m_block_summary = new QLabel;
+  m_block_summary->setStyleSheet(QStringLiteral("color: palette(placeholder-text);"));
+  auto* const block_bar = new QHBoxLayout;
+  block_bar->addWidget(m_mark_button);
+  block_bar->addWidget(m_clear_mark_button);
+  block_bar->addWidget(m_new_only);
+  block_bar->addWidget(m_block_summary, 1);
+  auto* const block_panel = new QWidget;
+  auto* const block_layout = new QVBoxLayout(block_panel);
+  block_layout->setContentsMargins(0, 4, 0, 0);
+  block_layout->addLayout(block_bar);
+  block_layout->addWidget(m_block_table, 1);
+
   auto* const tabs = new QTabWidget;
   tabs->setDocumentMode(true);
   tabs->addTab(m_stack_table, IconSet::Get("list-ul"), tr("Thread Stacks"));
   tabs->addTab(heap_panel, IconSet::Get("layer-group"), tr("Heaps"));
+  tabs->addTab(block_panel, IconSet::Get("table-list"), tr("Allocations"));
 
   auto* const splitter = new QSplitter(Qt::Horizontal);
   splitter->addWidget(m_graph);
@@ -340,6 +382,13 @@ MemoryUsageWidget::MemoryUsageWidget(MemoryAnalyzer* analyzer, QWidget* parent)
     const auto& stacks = m_analyzer->GetStacks();
     if (row >= 0 && row < static_cast<int>(stacks.size()))
       emit ShowMemory(stacks[row].high - stacks[row].peak, false);
+  });
+  connect(m_mark_button, &QPushButton::clicked, m_analyzer, &MemoryAnalyzer::SetMark);
+  connect(m_clear_mark_button, &QPushButton::clicked, m_analyzer, &MemoryAnalyzer::ClearMark);
+  connect(m_new_only, &QCheckBox::toggled, this, &MemoryUsageWidget::UpdateBlocks);
+  connect(m_block_table, &QTableWidget::cellDoubleClicked, this, [this](int row) {
+    if (const QTableWidgetItem* item = m_block_table->item(row, 0))
+      emit ShowMemory(item->data(Qt::UserRole).toUInt(), false);
   });
   connect(m_heap_table, &QTableWidget::cellDoubleClicked, this, [this](int row) {
     const auto& heaps = m_analyzer->GetHeaps();
@@ -443,6 +492,7 @@ void MemoryUsageWidget::OnUpdated()
   UpdateStats();
   UpdateStacks();
   UpdateHeaps();
+  UpdateBlocks();
 }
 
 void MemoryUsageWidget::UpdateStats()
@@ -455,7 +505,14 @@ void MemoryUsageWidget::UpdateStats()
   const int index = static_cast<int>(space);
   const u32 capacity = m_analyzer->GetSpaceSize(space);
 
-  m_in_use_value->setText(FormatBytes(latest.in_use[index]));
+  QString in_use = FormatBytes(latest.in_use[index]);
+  if (const auto& mark = m_analyzer->GetMark())
+  {
+    in_use += QStringLiteral("  ") +
+              tr("%1 since mark").arg(FormatDelta(s64(latest.in_use[index]) -
+                                                  s64(mark->in_use[index])));
+  }
+  m_in_use_value->setText(in_use);
   m_in_use_detail->setText(tr("of %1 %2 (%3%)")
                                .arg(FormatBytes(capacity), MemoryAnalyzer::GetSpaceName(space))
                                .arg(capacity ? latest.in_use[index] * 100.0 / capacity : 0.0, 0,
@@ -489,7 +546,15 @@ void MemoryUsageWidget::UpdateStats()
     int blocks = 0;
     for (const HeapInfo& heap : m_analyzer->GetHeaps())
       blocks += heap.allocated_blocks;
-    m_heap_value->setText(FormatBytes(*latest.heap_allocated));
+    QString value = FormatBytes(*latest.heap_allocated);
+    const auto& mark = m_analyzer->GetMark();
+    if (mark && mark->heap_allocated)
+    {
+      value += QStringLiteral("  ") +
+               tr("%1 since mark")
+                   .arg(FormatDelta(s64(*latest.heap_allocated) - s64(*mark->heap_allocated)));
+    }
+    m_heap_value->setText(value);
     m_heap_detail->setText(tr("of %1 in %n heap(s) · %2 blocks", "",
                               static_cast<int>(m_analyzer->GetHeaps().size()))
                                .arg(FormatBytes(*latest.heap_size))
@@ -604,4 +669,162 @@ void MemoryUsageWidget::UpdateHeaps()
   }
   if (resize)
     m_heap_table->resizeColumnsToContents();
+}
+
+namespace
+{
+// Sorts by a number stored in the item rather than by its text.
+class NumericItem final : public QTableWidgetItem
+{
+public:
+  NumericItem(const QString& text, double value) : QTableWidgetItem(text)
+  {
+    setData(Qt::UserRole + 1, value);
+  }
+  bool operator<(const QTableWidgetItem& other) const override
+  {
+    return data(Qt::UserRole + 1).toDouble() < other.data(Qt::UserRole + 1).toDouble();
+  }
+};
+
+QString PreviewBytes(const QByteArray& bytes)
+{
+  QString hex, text;
+  for (const char c : bytes)
+  {
+    const u8 byte = static_cast<u8>(c);
+    hex += QStringLiteral("%1 ").arg(byte, 2, 16, QLatin1Char('0'));
+    text += (byte >= 0x20 && byte < 0x7f) ? QLatin1Char(c) : QLatin1Char('.');
+  }
+  return hex + QStringLiteral(" ") + text;
+}
+
+QString FormatAge(double seconds)
+{
+  if (seconds < 60)
+    return QObject::tr("%1 s").arg(seconds, 0, 'f', 0);
+  if (seconds < 3600)
+    return QObject::tr("%1 min").arg(seconds / 60, 0, 'f', 1);
+  return QObject::tr("%1 h").arg(seconds / 3600, 0, 'f', 1);
+}
+}  // namespace
+
+void MemoryUsageWidget::UpdateBlocks()
+{
+  constexpr int MAX_ROWS = 1000;
+  // OSAlloc cells have a 32-byte header in front of the data.
+  constexpr u32 CELL_HEADER = 0x20;
+
+  const auto& mark = m_analyzer->GetMark();
+  m_clear_mark_button->setEnabled(mark.has_value());
+  m_new_only->setEnabled(mark.has_value());
+  const bool new_only = mark && m_new_only->isChecked();
+
+  std::vector<const HeapBlock*> blocks;
+  u64 total = 0, new_bytes = 0;
+  int new_count = 0;
+  for (const HeapBlock& block : m_analyzer->GetBlocks())
+  {
+    total += block.size;
+    const bool is_new = m_analyzer->IsNewSinceMark(block);
+    if (is_new)
+    {
+      new_bytes += block.size;
+      ++new_count;
+    }
+    if (!new_only || is_new)
+      blocks.push_back(&block);
+  }
+  std::sort(blocks.begin(), blocks.end(),
+            [](const HeapBlock* a, const HeapBlock* b) { return a->size > b->size; });
+  const bool truncated = blocks.size() > MAX_ROWS;
+  if (truncated)
+    blocks.resize(MAX_ROWS);
+
+  QString summary = tr("%n block(s), %1", "", static_cast<int>(m_analyzer->GetBlocks().size()))
+                        .arg(FormatBytes(total));
+  if (mark)
+  {
+    summary += tr(" · %n new since mark (%1)", "", new_count).arg(FormatBytes(new_bytes));
+  }
+  if (truncated)
+    summary += tr(" · largest %1 shown").arg(MAX_ROWS);
+  if (m_analyzer->AreBlocksTruncated())
+    summary += tr(" · first %1 tracked").arg(MemoryAnalyzer::MAX_TRACKED_BLOCKS);
+  m_block_summary->setText(summary);
+
+  if (!m_block_table->isVisible())
+    return;
+
+  // Keep the selected block selected across refreshes.
+  u32 selected = 0;
+  if (const QTableWidgetItem* item = m_block_table->currentItem())
+  {
+    if (const QTableWidgetItem* address = m_block_table->item(item->row(), 0))
+      selected = address->data(Qt::UserRole).toUInt();
+  }
+
+  const QColor new_color(0x5f, 0xe3, 0xff);
+  const double now = m_analyzer->GetTime();
+  QFont mono = m_block_table->font();
+  mono.setFamily(QStringLiteral("monospace"));
+  mono.setStyleHint(QFont::Monospace);
+
+  const QSignalBlocker blocker(m_block_table);
+  m_block_table->setSortingEnabled(false);
+  m_block_table->setRowCount(static_cast<int>(blocks.size()));
+  int select_row = -1;
+  for (int row = 0; row < static_cast<int>(blocks.size()); ++row)
+  {
+    const HeapBlock& block = *blocks[row];
+    const bool is_new = m_analyzer->IsNewSinceMark(block);
+
+    auto* const address = new NumericItem(Hex32(block.address), block.address);
+    address->setData(Qt::UserRole, block.address);
+    address->setFont(mono);
+    auto* const size = new NumericItem(FormatBytes(block.size), block.size);
+    size->setTextAlignment(Qt::AlignRight | Qt::AlignVCenter);
+    auto* const heap = new NumericItem(tr("Heap %1").arg(block.heap), block.heap);
+    const double age_seconds = now - block.first_seen;
+    auto* const age = new NumericItem(
+        block.first_seen <= 0 ? tr("since start") : FormatAge(age_seconds), age_seconds);
+    auto* const contents =
+        new QTableWidgetItem(PreviewBytes(m_analyzer->PeekBytes(block.address + CELL_HEADER, 16)));
+    contents->setFont(mono);
+    if (is_new)
+    {
+      for (QTableWidgetItem* item : {static_cast<QTableWidgetItem*>(address),
+                                     static_cast<QTableWidgetItem*>(size),
+                                     static_cast<QTableWidgetItem*>(heap),
+                                     static_cast<QTableWidgetItem*>(age)})
+      {
+        item->setForeground(new_color);
+      }
+      age->setText(age->text() + tr(" · new"));
+    }
+    m_block_table->setItem(row, 0, address);
+    m_block_table->setItem(row, 1, size);
+    m_block_table->setItem(row, 2, heap);
+    m_block_table->setItem(row, 3, age);
+    m_block_table->setItem(row, 4, contents);
+    if (block.address == selected)
+      select_row = row;
+  }
+  m_block_table->setSortingEnabled(true);
+  if (select_row >= 0)
+  {
+    for (int row = 0; row < m_block_table->rowCount(); ++row)
+    {
+      if (m_block_table->item(row, 0)->data(Qt::UserRole).toUInt() == selected)
+      {
+        m_block_table->selectRow(row);
+        break;
+      }
+    }
+  }
+  if (!m_blocks_sized && !blocks.empty())
+  {
+    m_block_table->resizeColumnsToContents();
+    m_blocks_sized = true;
+  }
 }

@@ -19,8 +19,12 @@ add_library(gxbake
   Quake.h
   Resample.cpp
   Resample.h
+  Source.h
+  SourceModel.cpp
   Studio.cpp
   Studio.h
+  Vtf.cpp
+  Vtf.h
 )
 
 target_link_libraries(gxbake
@@ -34,7 +38,7 @@ PRIVATE
 # The encoders reproduce numpy's float32 rounding step by step to stay byte-identical with the
 # Python tool; fused multiply-adds would change the results.
 if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
-  set_source_files_properties(Cmpr.cpp Encode.cpp GoldSrc.cpp Quake.cpp Studio.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+  set_source_files_properties(Cmpr.cpp Encode.cpp GoldSrc.cpp Quake.cpp SourceModel.cpp Studio.cpp Vtf.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 endif()
 
 if(MSVC)

@@ -421,16 +421,6 @@ void Set32(std::vector<uint8_t>* out, size_t p, int32_t v)
 }
 }  // namespace
 
-bool StudioNeedsPython(const std::vector<uint8_t>& d)
-{
-  if (d.size() < 8)
-    return false;
-  const int32_t version = S32(d, 4);
-  if (std::memcmp(d.data(), "IDST", 4) == 0)
-    return version >= 44 && version <= 49;
-  return std::memcmp(d.data(), "IDPO", 4) == 0 && version == 6;
-}
-
 std::optional<std::vector<uint8_t>> LeanStudioMesh(const std::vector<uint8_t>& raw)
 {
   if (raw.size() < 192 || !IsStudio(raw))

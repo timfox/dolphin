@@ -27,6 +27,7 @@
   </ItemDefinitionGroup>
   <ItemGroup>
     <ClInclude Include="Core\DSP\DSPTestBinary.h" />
+    <ClInclude Include="Core\GxBakeSourceFixture.h" />
     <ClInclude Include="Core\DSP\DSPTestText.h" />
     <ClInclude Include="Core\DSP\HermesBinary.h" />
     <ClInclude Include="Core\DSP\HermesText.h" />

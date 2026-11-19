@@ -33,6 +33,7 @@
 #include "GxBake/Encode.h"
 #include "GxBake/GoldSrc.h"
 #include "GxBake/Quake.h"
+#include "GxBake/Source.h"
 #include "GxBake/Studio.h"
 #include "GxBake/Md5.h"
 #include "GxBake/Process.h"
@@ -878,6 +879,22 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
     const bool map = s.ext == ".bsp";
     const fs::path host_path = StringToPath(s.host);
     std::string deps = QuakeDependencies(host_path);
+    if (s.ext == ".mdl")
+    {
+      // A Source model reads its .vvd, .vtx and skin materials.
+      std::ifstream head_file(host_path, std::ios::binary);
+      std::vector<u8> head(8);
+      head_file.read(reinterpret_cast<char*>(head.data()), 8);
+      head.resize(static_cast<size_t>(head_file.gcount()));
+      if (IsSourceModel(head))
+      {
+        if (const auto mdl = ReadFile(s.host))
+        {
+          for (const fs::path& dep : SourceModelDependencies(host_path, *mdl))
+            deps += FileFingerprint(dep);
+        }
+      }
+    }
     if (map)
       deps += MapDependencies(host_path);
     const std::string fp = deps.empty() ? s.Fingerprint() : Md5Hex(s.Fingerprint() + ";" + deps);
@@ -947,17 +964,28 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
       if (!pack->empty())
         baked["media/" + s.stem + ".gct"] = *pack;
     }
-    else if (s.ext == ".mdl" && IsAliasModel(*data))
+    else if (s.ext == ".mdl" && (IsAliasModel(*data) || IsSourceModel(*data)))
     {
-      // quake.import_alias, then models.build_studio_mdl and the gc_studio cuts.
-      const auto [palette, found] = quake_palette();
-      auto model = ImportAliasModel(*data, PathToString(host_path.stem()), palette, found);
+      // quake.import_alias or source_mdl.import_source, then models.build_studio_mdl and the
+      // gc_studio cuts.
+      std::optional<ImportedModel> model;
+      std::string error;
+      if (IsAliasModel(*data))
+      {
+        const auto [palette, found] = quake_palette();
+        model = ImportAliasModel(*data, PathToString(host_path.stem()), palette, found);
+        if (!model)
+          error = "not a readable Quake model";
+      }
+      else
+      {
+        model = ImportSourceModel(host_path, *data, {}, &error);
+      }
       if (!model)
       {
-        Warn(fmt::format("{}: not a readable Quake model", s.rel));
+        Warn(fmt::format("{}: {}", s.rel, error));
         continue;
       }
-      std::string error;
       const auto built = BuildStudioMdl(*model, &error);
       if (!built)
       {
@@ -978,11 +1006,6 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
     }
     else if (s.ext == ".mdl")
     {
-      if (StudioNeedsPython(*data))
-      {
-        s.kind = Kind::PythonAndPassthrough;  // Source model
-        continue;
-      }
       // A sequence group (<name>01.mdl, "IDSQ") yields nothing; it still goes on the disc for
       // the engine to read with its model.
       const bool sequence_group = data->size() >= 4 && std::memcmp(data->data(), "IDSQ", 4) == 0;

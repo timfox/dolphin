@@ -11,8 +11,9 @@
 //
 // PNG/TGA/BMP textures and skies, PCM WAV audio, GoldSrc content (Half-Life sprites, WAD3
 // texture packs, BSP v30 world texture packs and skies, studio models) and Quake content (sprites,
-// WAD2 files, v29 maps, alias models) are converted natively, byte-identical to the Python tool.
-// Everything else GxBake reads (other model formats, Source/Source 2 assets, other image and
+// WAD2 files, v29 maps, alias models) and Source models are converted natively, byte-identical
+// to the Python tool. Everything else GxBake reads (other model formats, Source maps and
+// textures, Source 2 assets, other image and
 // audio formats) is handed to the GxBake Python tool when it is installed. Results are
 // cached per source file, so only what changed is converted again.
 

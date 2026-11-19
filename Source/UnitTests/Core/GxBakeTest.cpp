@@ -10,6 +10,8 @@
 
 #include <gtest/gtest.h>
 
+#include "GxBakeSourceFixture.h"
+
 #include "Common/FileUtil.h"
 #include "Common/Image.h"
 #include "GxBake/AssetBaker.h"
@@ -17,6 +19,7 @@
 #include "GxBake/GoldSrc.h"
 #include "GxBake/Md5.h"
 #include "GxBake/Quake.h"
+#include "GxBake/Source.h"
 #include "GxBake/Studio.h"
 
 namespace
@@ -542,6 +545,35 @@ TEST(GxBake, QuakeMatchesPythonTool)
   EXPECT_EQ(Md5Of(*mdl), "927af53891007d422eb3bd996b890fc0");
   EXPECT_EQ(Md5Of(*GxBake::LeanStudioMesh(*mdl)), "44ee5bb6516ba81310a7c313d0475eed");
   EXPECT_EQ(Md5Of(*GxBake::StudioSkinCompanion(*mdl)), "313976fdfa0a65e733cfc60156c2ddfe");
+}
+
+TEST(GxBake, SourceModelMatchesPythonTool)
+{
+  const std::string root = File::CreateTempDir() + "/hl2/";
+  for (const auto& [rel, hex] : GxBakeSourceFixture::kFiles)
+  {
+    std::string bytes;
+    for (size_t i = 0; hex[i] && hex[i + 1]; i += 2)
+      bytes.push_back(static_cast<char>(std::stoi(std::string(hex + i, 2), nullptr, 16)));
+    File::CreateFullPath(root + rel);
+    File::WriteStringToFile(root + rel, bytes);
+  }
+  const std::string path = root + "models/test/thing.mdl";
+  std::string text;
+  ASSERT_TRUE(File::ReadFileToString(path, text));
+  const std::vector<u8> data(text.begin(), text.end());
+  ASSERT_TRUE(GxBake::IsSourceModel(data));
+  EXPECT_EQ(GxBake::SourceModelDependencies(path, data).size(), 6u);  // .vvd .vtx 2x(.vmt .vtf)
+
+  std::string error;
+  auto model = GxBake::ImportSourceModel(path, data, {}, &error);
+  ASSERT_TRUE(model.has_value()) << error;
+  const auto mdl = GxBake::BuildStudioMdl(*model, &error);
+  ASSERT_TRUE(mdl.has_value()) << error;
+  EXPECT_EQ(Md5Of(*mdl), "6bd908017ecf152611e98ae7b8a44371");
+  EXPECT_EQ(Md5Of(*GxBake::LeanStudioMesh(*mdl)), "76daa199a337499c07dce20bdbb8113a");
+  EXPECT_EQ(Md5Of(*GxBake::StudioSkinCompanion(*mdl)), "4fb2bf79547085d550948b3d6cdebd7f");
+  File::DeleteDirRecursively(root);
 }
 
 TEST(GxBake, GctRoundTrip)

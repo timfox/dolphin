@@ -79,6 +79,18 @@ QuantizeSkin(const RgbaImage& rgba, bool masked, int alpha_threshold = 128);
 std::optional<std::vector<uint8_t>> BuildStudioMdl(ImportedModel& model, std::string* error,
                                                    int alpha_threshold = 128);
 
+// skeleton.py matrices: studio poses are R = Rz(yaw) Ry(pitch) Rx(roll) plus a translation.
+using Mat4 = std::array<std::array<double, 4>, 4>;
+Mat4 MatrixFromPose(const Pose& pose);
+Pose PoseFromMatrix(const Mat4& m);
+Mat4 Multiply(const Mat4& a, const Mat4& b);  // a @ b
+std::vector<Mat4> WorldMatrices(const std::vector<Pose>& poses, const std::vector<int>& parents);
+
+// models._seq_name and models._unique: a safe, lower-case sequence name of at most 31 bytes,
+// numbered when |used| already holds it.
+std::string SequenceName(const std::string& latin1);
+std::string UniqueName(const std::string& name, std::vector<std::string>* used);
+
 // Latin-1 bytes for a UTF-8 string, '?' for characters outside it (str.encode("latin-1",
 // "replace")).
 std::string ToLatin1(const std::string& utf8);

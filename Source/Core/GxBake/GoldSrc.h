@@ -40,11 +40,9 @@ std::optional<std::vector<uint8_t>> BuildWadTexturePack(const std::vector<uint8_
                                                         const std::string& cache_dir,
                                                         const uint8_t* quake_palette = nullptr);
 
-// True for a .mdl the Python tool imports itself: Source (IDST v44-49) and Quake (IDPO v6) models.
-bool StudioNeedsPython(const std::vector<uint8_t>& data);
-
 // gc_studio/<name>.mdl: the model cut before its embedded textures, so it fits the engine's studio
-// BSS. Empty when the file isn't a GoldSrc studio model.
+// BSS. Empty when the file isn't a GoldSrc studio model (Quake and Source models are first baked
+// into one, see Studio.h).
 std::optional<std::vector<uint8_t>> LeanStudioMesh(const std::vector<uint8_t>& mdl);
 
 // gc_studio/<name>t.mdl: the model's skins, downsampled until neither side exceeds |max_edge|.

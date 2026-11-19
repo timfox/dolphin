@@ -33,7 +33,6 @@ constexpr size_t TEXTURE = 80;
 
 using Bytes = std::vector<uint8_t>;
 using Vec3 = std::array<double, 3>;
-using Mat4 = std::array<std::array<double, 4>, 4>;
 
 void PutI32(Bytes* out, int32_t v)
 {
@@ -140,48 +139,6 @@ std::string TextureName(const std::string& name, size_t i)
   if (safe.empty())
     safe = "skin" + std::to_string(i);
   return safe.substr(0, 58) + ".bmp";
-}
-
-// --- skeleton.py --------------------------------------------------------------------------------
-
-Mat4 MatrixFromPose(const Pose& p)
-{
-  const double sr = std::sin(p[3]), cr = std::cos(p[3]);
-  const double sp = std::sin(p[4]), cp = std::cos(p[4]);
-  const double sy = std::sin(p[5]), cy = std::cos(p[5]);
-  Mat4 m{};
-  m[0] = {cp * cy, sr * sp * cy - cr * sy, cr * sp * cy + sr * sy, p[0]};
-  m[1] = {cp * sy, sr * sp * sy + cr * cy, cr * sp * sy - sr * cy, p[1]};
-  m[2] = {-sp, sr * cp, cr * cp, p[2]};
-  m[3] = {0.0, 0.0, 0.0, 1.0};
-  return m;
-}
-
-Mat4 Multiply(const Mat4& a, const Mat4& b)
-{
-  Mat4 out{};
-  for (int i = 0; i < 4; i++)
-  {
-    for (int j = 0; j < 4; j++)
-    {
-      double sum = a[i][0] * b[0][j];
-      for (int k = 1; k < 4; k++)
-        sum += a[i][k] * b[k][j];
-      out[i][j] = sum;
-    }
-  }
-  return out;
-}
-
-std::vector<Mat4> WorldMatrices(const std::vector<Pose>& poses, const std::vector<int>& parents)
-{
-  std::vector<Mat4> mats;
-  for (size_t b = 0; b < parents.size(); b++)
-  {
-    const Mat4 m = MatrixFromPose(poses[b]);
-    mats.push_back(parents[b] < 0 ? m : Multiply(mats[parents[b]], m));
-  }
-  return mats;
 }
 
 std::vector<Pose> BoneScales(const std::vector<Pose>& rest,
@@ -471,6 +428,105 @@ struct Mesh
   std::vector<std::pair<bool, std::vector<Corner>>> strips;
 };
 }  // namespace
+
+// --- skeleton.py (public) --------------------------------------------------------------------------------
+
+Mat4 MatrixFromPose(const Pose& p)
+{
+  const double sr = std::sin(p[3]), cr = std::cos(p[3]);
+  const double sp = std::sin(p[4]), cp = std::cos(p[4]);
+  const double sy = std::sin(p[5]), cy = std::cos(p[5]);
+  Mat4 m{};
+  m[0] = {cp * cy, sr * sp * cy - cr * sy, cr * sp * cy + sr * sy, p[0]};
+  m[1] = {cp * sy, sr * sp * sy + cr * cy, cr * sp * sy - sr * cy, p[1]};
+  m[2] = {-sp, sr * cp, cr * cp, p[2]};
+  m[3] = {0.0, 0.0, 0.0, 1.0};
+  return m;
+}
+
+Mat4 Multiply(const Mat4& a, const Mat4& b)
+{
+  Mat4 out{};
+  for (int i = 0; i < 4; i++)
+  {
+    for (int j = 0; j < 4; j++)
+    {
+      // numpy's matmul goes through BLAS, which sums with an FMA chain.
+      double sum = a[i][0] * b[0][j];
+      for (int k = 1; k < 4; k++)
+        sum = std::fma(a[i][k], b[k][j], sum);
+      out[i][j] = sum;
+    }
+  }
+  return out;
+}
+
+std::vector<Mat4> WorldMatrices(const std::vector<Pose>& poses, const std::vector<int>& parents)
+{
+  std::vector<Mat4> mats;
+  for (size_t b = 0; b < parents.size(); b++)
+  {
+    const Mat4 m = MatrixFromPose(poses[b]);
+    mats.push_back(parents[b] < 0 ? m : Multiply(mats[parents[b]], m));
+  }
+  return mats;
+}
+
+Pose PoseFromMatrix(const Mat4& m)
+{
+  // skeleton.angles_from_matrix
+  const double sp = -std::clamp(m[2][0], -1.0, 1.0);
+  const double pitch = std::asin(sp);
+  double roll, yaw;
+  if (std::abs(sp) < 0.999999)
+  {
+    roll = std::atan2(m[2][1], m[2][2]);
+    yaw = std::atan2(m[1][0], m[0][0]);
+  }
+  else
+  {
+    roll = 0.0;
+    yaw = std::atan2(-m[0][1], m[1][1]);
+  }
+  return {m[0][3], m[1][3], m[2][3], roll, pitch, yaw};
+}
+
+std::string SequenceName(const std::string& latin1)
+{
+  std::string name = latin1;
+  if (const size_t bar = name.rfind('|'); bar != std::string::npos)
+    name = name.substr(bar + 1);
+  const auto space = [](char ch) {
+    const uint8_t c = static_cast<uint8_t>(ch);
+    return c == ' ' || (c >= '\t' && c <= '\r') || (c >= 0x1c && c <= 0x1f) || c == 0x85 ||
+           c == 0xa0;
+  };
+  size_t a = 0, b = name.size();
+  while (a < b && space(name[a]))
+    a++;
+  while (b > a && space(name[b - 1]))
+    b--;
+  std::string safe;
+  for (const char c : Lower(name.substr(a, b - a)))
+    safe += IsAlnumLatin1(static_cast<uint8_t>(c)) || c == '_' || c == '-' ? c : '_';
+  if (safe.empty())
+    safe = "anim";
+  return safe.substr(0, 31);
+}
+
+std::string UniqueName(const std::string& base, std::vector<std::string>* used)
+{
+  std::string name = base;
+  int n = 1;
+  while (std::ranges::find(*used, Lower(name)) != used->end())
+  {
+    n++;
+    const std::string suffix = "_" + std::to_string(n);
+    name = base.substr(0, 31 - suffix.size()) + suffix;
+  }
+  used->push_back(Lower(name));
+  return name;
+}
 
 std::string ToLatin1(const std::string& utf8)
 {
@@ -784,8 +840,9 @@ std::optional<std::vector<uint8_t>> BuildStudioMdl(ImportedModel& model, std::st
       const Mat4& m = mats[vert_bone[i]];
       for (int r = 0; r < 3; r++)
       {
-        out[i][r] = m[r][0] * positions[i][0] + m[r][1] * positions[i][1] +
-                    m[r][2] * positions[i][2] + m[r][3];
+        // np.einsum("nij,nj->ni") sums the first and last products first.
+        out[i][r] = (m[r][0] * positions[i][0] + m[r][2] * positions[i][2]) +
+                    m[r][1] * positions[i][1] + m[r][3];
       }
     }
     return out;

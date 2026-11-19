@@ -246,6 +246,12 @@ add_executable(dolphin-emu
   Debugger/JitBlockTableModel.h
   Debugger/JITWidget.cpp
   Debugger/JITWidget.h
+  Debugger/MemoryAnalyzer.cpp
+  Debugger/MemoryAnalyzer.h
+  Debugger/MemoryMapWidget.cpp
+  Debugger/MemoryMapWidget.h
+  Debugger/MemoryUsageWidget.cpp
+  Debugger/MemoryUsageWidget.h
   Debugger/MemoryViewWidget.cpp
   Debugger/MemoryViewWidget.h
   Debugger/MemoryWidget.cpp

@@ -55,6 +55,9 @@ class JITWidget;
 class LogConfigWidget;
 class LogWidget;
 class MappingWindow;
+class MemoryAnalyzer;
+class MemoryMapWidget;
+class MemoryUsageWidget;
 class MemoryWidget;
 class MenuBar;
 class NetPlayDialog;
@@ -164,6 +167,8 @@ private:
   void SetEditorLayoutEnabled(bool enabled);
   void ResetEditorLayout();
   void CreateDevkitPanels();
+  // Docks the memory panels in an editor layout saved before they existed.
+  void PlaceNewEditorPanels();
   void CreateProjectMenu();
   void UpdateProjectActions();
   void UpdateWindowTitle();
@@ -288,6 +293,9 @@ private:
   DevkitProject* m_project = nullptr;
   DevkitBuilder* m_builder = nullptr;
   ProjectWidget* m_project_widget = nullptr;
+  MemoryAnalyzer* m_memory_analyzer = nullptr;
+  MemoryMapWidget* m_memory_map_widget = nullptr;
+  MemoryUsageWidget* m_memory_usage_widget = nullptr;
   BuildOutputWidget* m_build_output_widget = nullptr;
   DiagnosticsWidget* m_warnings_widget = nullptr;
   DiagnosticsWidget* m_errors_widget = nullptr;

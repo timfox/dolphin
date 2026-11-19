@@ -575,6 +575,14 @@ void MemoryWidget::OnBPTypeChanged()
   SaveSettings();
 }
 
+void MemoryWidget::ShowAddress(u32 address, bool auxiliary)
+{
+  QRadioButton* const radio = auxiliary ? m_address_space_auxiliary : m_address_space_effective;
+  if (!radio->isChecked())
+    radio->setChecked(true);
+  SetAddress(address);
+}
+
 void MemoryWidget::SetAddress(u32 address)
 {
   // Store current and target address in combo box

@@ -152,6 +152,9 @@
     <ClCompile Include="Debugger\GekkoSyntaxHighlight.cpp" />
     <ClCompile Include="Debugger\JitBlockTableModel.cpp" />
     <ClCompile Include="Debugger\JITWidget.cpp" />
+    <ClCompile Include="Debugger\MemoryAnalyzer.cpp" />
+    <ClCompile Include="Debugger\MemoryMapWidget.cpp" />
+    <ClCompile Include="Debugger\MemoryUsageWidget.cpp" />
     <ClCompile Include="Debugger\MemoryViewWidget.cpp" />
     <ClCompile Include="Debugger\MemoryWidget.cpp" />
     <ClCompile Include="Debugger\NetworkWidget.cpp" />
@@ -385,6 +388,9 @@
     <QtMoc Include="Debugger\GekkoSyntaxHighlight.h" />
     <QtMoc Include="Debugger\JitBlockTableModel.h" />
     <QtMoc Include="Debugger\JITWidget.h" />
+    <QtMoc Include="Debugger\MemoryAnalyzer.h" />
+    <QtMoc Include="Debugger\MemoryMapWidget.h" />
+    <QtMoc Include="Debugger\MemoryUsageWidget.h" />
     <QtMoc Include="Debugger\MemoryViewWidget.h" />
     <QtMoc Include="Debugger\MemoryWidget.h" />
     <QtMoc Include="Debugger\NetworkWidget.h" />

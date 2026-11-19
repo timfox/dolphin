@@ -8,6 +8,7 @@
 		<file>box-archive.svg</file>
 		<file>broom.svg</file>
 		<file>camera.svg</file>
+		<file>chart-area.svg</file>
 		<file>chart-line.svg</file>
 		<file>circle-dot.svg</file>
 		<file>circle-play.svg</file>
@@ -45,6 +46,7 @@
 		<file>location-crosshairs.svg</file>
 		<file>location-dot.svg</file>
 		<file>magnifying-glass.svg</file>
+		<file>map.svg</file>
 		<file>memory.svg</file>
 		<file>microchip.svg</file>
 		<file>network-wired.svg</file>

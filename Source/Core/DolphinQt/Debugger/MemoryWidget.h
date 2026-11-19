@@ -38,6 +38,8 @@ public:
   ~MemoryWidget() override;
 
   void SetAddress(u32 address);
+  // Switches to the effective (MEM1/MEM2) or auxiliary (ARAM) address space, then shows |address|.
+  void ShowAddress(u32 address, bool auxiliary);
   void Update();
 signals:
   void ShowCode(u32 address);

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cstring>
 #include <string>
+#include <tuple>
 #include <vector>
 
 #include <gtest/gtest.h>
@@ -12,6 +13,7 @@
 #include "Common/Image.h"
 #include "GxBake/AssetBaker.h"
 #include "GxBake/Encode.h"
+#include "GxBake/GoldSrc.h"
 #include "GxBake/Md5.h"
 
 namespace
@@ -65,6 +67,146 @@ std::vector<u8> MonoWav(int frames)
   return wav;
 }
 
+// GoldSrc fixtures, built the same way as the Python script the reference hashes came from.
+void Put(std::vector<u8>* out, u32 v, int bytes = 4)
+{
+  for (int i = 0; i < bytes; i++)
+    out->push_back(static_cast<u8>(v >> (8 * i)));
+}
+
+std::vector<u8> GsPalette(int seed)
+{
+  std::vector<u8> pal;
+  for (int i = 0; i < 256; i++)
+  {
+    pal.push_back(static_cast<u8>((i * 3 + seed) & 255));
+    pal.push_back(static_cast<u8>((i * 5 + 17) & 255));
+    pal.push_back(static_cast<u8>((i * 11 + 101 + seed) & 255));
+  }
+  return pal;
+}
+
+std::vector<u8> GsIndices(int w, int h, int seed)
+{
+  std::vector<u8> idx;
+  for (int y = 0; y < h; y++)
+    for (int x = 0; x < w; x++)
+      idx.push_back(static_cast<u8>((x * 7 + y * 13 + seed) & 255));
+  return idx;
+}
+
+void Append(std::vector<u8>* out, const std::vector<u8>& more)
+{
+  out->insert(out->end(), more.begin(), more.end());
+}
+
+std::vector<u8> GsName(const std::string& name)
+{
+  std::vector<u8> raw(16, 0);
+  std::copy(name.begin(), name.end(), raw.begin());
+  return raw;
+}
+
+std::vector<u8> GsMiptex(const std::string& name, u32 w, u32 h, int seed)
+{
+  const u32 n = w * h;
+  std::vector<u8> out = GsName(name);
+  for (u32 v : {w, h, 40u, 40 + n, 40 + n + n / 4, 40 + n + n / 4 + n / 16})
+    Put(&out, v);
+  Append(&out, GsIndices(w, h, seed));
+  out.resize(out.size() + n / 4 + n / 16 + n / 64, 0);
+  Put(&out, 256, 2);
+  Append(&out, GsPalette(seed));
+  out.push_back(0);
+  out.push_back(0);
+  return out;
+}
+
+std::vector<u8> GsQpic(u32 w, u32 h, int seed)
+{
+  std::vector<u8> out;
+  Put(&out, w);
+  Put(&out, h);
+  Append(&out, GsIndices(w, h, seed));
+  Put(&out, 256, 2);
+  Append(&out, GsPalette(seed));
+  return out;
+}
+
+std::vector<u8> GsFont(u32 h, int seed)
+{
+  std::vector<u8> out;
+  for (u32 v : {0u, h, 16u, h / 16 ? h / 16 : 1})
+    Put(&out, v);
+  for (u32 i = 0; i < 256; i++)
+  {
+    Put(&out, i * 3, 2);
+    Put(&out, 8, 2);
+  }
+  Append(&out, GsIndices(256, h, seed));
+  Put(&out, 256, 2);
+  Append(&out, GsPalette(seed));
+  return out;
+}
+
+std::vector<u8> GsWad()
+{
+  const std::vector<std::tuple<std::string, u8, std::vector<u8>>> lumps = {
+      {"BRICK_A", 0x43, GsMiptex("BRICK_A", 64, 32, 1)},
+      {"ODD", 0x43, GsMiptex("odd", 24, 20, 2)},
+      {"{FENCE", 0x43, GsMiptex("{FENCE", 40, 12, 3)},
+      {"BRICK_A", 0x43, GsMiptex("brick_a", 8, 8, 9)},
+      {"HUD_BAR", 0x42, GsQpic(30, 10, 4)},
+      {"CONCHARS", 0x46, GsFont(64, 5)},
+      {"ODD", 0x42, GsQpic(8, 8, 6)}};
+  std::vector<u8> data = {'W', 'A', 'D', '3'};
+  Put(&data, static_cast<u32>(lumps.size()));
+  Put(&data, 0);
+  std::vector<u8> table;
+  for (const auto& [name, kind, body] : lumps)
+  {
+    Put(&table, static_cast<u32>(data.size()));
+    Put(&table, static_cast<u32>(body.size()));
+    Put(&table, static_cast<u32>(body.size()));
+    table.push_back(kind);
+    table.push_back(0);
+    Put(&table, 0, 2);
+    Append(&table, GsName(name));
+    Append(&data, body);
+  }
+  const u32 table_offset = static_cast<u32>(data.size());
+  for (int i = 0; i < 4; i++)
+    data[8 + i] = static_cast<u8>(table_offset >> (8 * i));
+  Append(&data, table);
+  return data;
+}
+
+std::vector<u8> GsSprite(u32 w, u32 h, u32 tex, s32 ox, s32 oy, int seed)
+{
+  std::vector<u8> out = {'I', 'D', 'S', 'P'};
+  Put(&out, 2);
+  Put(&out, 2);
+  Put(&out, tex);
+  Put(&out, 0x3F800000);  // 1.0f
+  for (u32 v : {w, h, 1u, 0u, 0u})
+    Put(&out, v);
+  Put(&out, 256, 2);
+  Append(&out, GsPalette(seed));
+  for (u32 v : {0u, static_cast<u32>(ox), static_cast<u32>(oy), w, h})
+    Put(&out, v);
+  std::vector<u8> px = GsIndices(w, h, seed);
+  if (tex == 3)
+  {
+    for (size_t i = 0; i < px.size(); i++)
+    {
+      if ((i * 7) % 5)
+        px[i] = 255;
+    }
+  }
+  Append(&out, px);
+  return out;
+}
+
 void WritePng(const std::string& path, const GxBake::RgbaImage& img)
 {
   File::CreateFullPath(path);
@@ -93,6 +235,31 @@ TEST(GxBake, MatchesPythonTool)
   EXPECT_EQ(Md5Of(*pcm), "835f305643450fda0f071646a26a0848");
 }
 
+// Reference outputs from the Python tool (gxbake convert, default settings) for the same files.
+TEST(GxBake, GoldSrcMatchesPythonTool)
+{
+  const auto pack = GxBake::BuildWadTexturePack(GsWad(), "");
+  ASSERT_TRUE(pack.has_value());
+  EXPECT_EQ(Md5Of(*pack), "b59d13bc1aaa92f544083bebd60e4fe0");
+
+  const auto cross = GxBake::LeanHlSprite(GsSprite(64, 32, 3, -31, 15, 7));
+  ASSERT_TRUE(cross.has_value());
+  EXPECT_EQ(Md5Of(*cross), "753fc5b9abd4cab292d2c334e76c118a");
+
+  // 33 pixels wide can't be halved, so the Python tool copies the sprite as is.
+  const auto odd = GsSprite(33, 16, 0, 0, 0, 8);
+  EXPECT_FALSE(GxBake::LeanHlSprite(odd).has_value());
+  EXPECT_EQ(Md5Of(odd), "8ba273c3a8bd29df2e88c62e2b0c985e");
+
+  // Quake sprites and WAD2 files are left to the Python tool.
+  std::vector<u8> quake_sprite = GsSprite(16, 16, 0, 0, 0, 1);
+  quake_sprite[4] = 1;
+  EXPECT_TRUE(GxBake::SpriteNeedsPython(quake_sprite));
+  std::vector<u8> wad2 = GsWad();
+  wad2[3] = '2';
+  EXPECT_FALSE(GxBake::BuildWadTexturePack(wad2, "").has_value());
+}
+
 TEST(GxBake, GctRoundTrip)
 {
   const GxBake::GctEntry entry = GxBake::EncodeImage(Pattern(64, 32), {}, "Wall");
@@ -115,6 +282,12 @@ TEST(GxBake, BakesAndUpdatesLive)
                             std::string(wav.begin(), wav.end()));
   }
   File::WriteStringToFile(assets + "valve/autoexec.cfg", "echo hi\n");
+  const auto write_bytes = [](const std::string& path, const std::vector<u8>& data) {
+    File::CreateFullPath(path);
+    File::WriteStringToFile(path, std::string(data.begin(), data.end()));
+  };
+  write_bytes(assets + "valve/test.wad", GsWad());
+  write_bytes(assets + "valve/sprites/cross.spr", GsSprite(64, 32, 3, -31, 15, 7));
 
   GxBake::AssetBaker baker(assets);
   auto files = baker.Bake();
@@ -124,6 +297,16 @@ TEST(GxBake, BakesAndUpdatesLive)
   ASSERT_NE(find("valve/media/textures.gct"), files.end());
   ASSERT_NE(find("valve/media/theme.gcpcm"), files.end());
   ASSERT_NE(find("valve/autoexec.cfg"), files.end());
+  // GoldSrc files stay on the disc and get native derived outputs, without the Python tool.
+  ASSERT_NE(find("valve/test.wad"), files.end());
+  ASSERT_NE(find("valve/media/test.gct"), files.end());
+  ASSERT_NE(find("valve/sprites/cross.spr"), files.end());
+  {
+    std::string lean;
+    ASSERT_TRUE(File::ReadFileToString(find("valve/sprites/cross.spr")->host_path, lean));
+    EXPECT_EQ(Md5Of(std::vector<u8>(lean.begin(), lean.end())),
+              "753fc5b9abd4cab292d2c334e76c118a");
+  }
   const std::string pack = find("valve/media/textures.gct")->host_path;
   std::string before;
   ASSERT_TRUE(File::ReadFileToString(pack, before));

@@ -28,6 +28,7 @@
 #include "Common/StringUtil.h"
 #include "GxBake/Config.h"
 #include "GxBake/Encode.h"
+#include "GxBake/GoldSrc.h"
 #include "GxBake/Md5.h"
 #include "GxBake/Process.h"
 
@@ -85,6 +86,7 @@ enum class Kind
   NativeImage,
   NativeSky,
   NativeWav,
+  NativeGoldSrc,  // a .spr/.wad that stays on the disc, plus a native derived output
   Python,
   PythonAndPassthrough,
 };
@@ -532,6 +534,12 @@ struct AssetBaker::Impl
       {
         s.kind = Kind::Python;
       }
+      else if (s.ext == ".spr" || s.ext == ".wad")
+      {
+        // Half-Life sprites and WAD3 files bake natively; Quake ones turn out to need the
+        // Python tool once their header is read.
+        s.kind = Kind::NativeGoldSrc;
+      }
       else if (GOLDSRC_EXTS.contains(s.ext))
       {
         s.kind = Kind::PythonAndPassthrough;
@@ -704,6 +712,65 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
     }
   }
 
+  // --- GoldSrc sprites and WADs ---------------------------------------------------------------
+  for (Source& s : sources)
+  {
+    if (s.kind != Kind::NativeGoldSrc)
+      continue;
+    const bool sprite = s.ext == ".spr";
+    const std::string key = "goldsrc:" + s.rel;
+    const std::string out_rel =
+        Join(s.gamedir, sprite ? "sprites/" + s.stem + ".spr" : "media/" + s.stem + ".gct");
+    const auto it = state.find(key);
+    if (it != state.end() && it->second.fingerprint == s.Fingerprint() &&
+        std::ranges::all_of(it->second.outputs,
+                            [&](const std::string& o) { return File::IsFile(OutPath(o)); }))
+    {
+      next[key] = it->second;
+      continue;
+    }
+    const auto data = ReadFile(s.host);
+    if (!data)
+      continue;
+    if (sprite ? SpriteNeedsPython(*data) : !IsWad3(*data))
+    {
+      s.kind = Kind::PythonAndPassthrough;  // Quake sprite or WAD2
+      continue;
+    }
+
+    std::vector<u8> baked;
+    if (sprite)
+    {
+      // A sprite that can't be leaned (several frames, odd size) is copied as is.
+      baked = LeanHlSprite(*data).value_or(*data);
+    }
+    else
+    {
+      const auto pack = BuildWadTexturePack(*data, cache_dir + "python-cmpr");
+      if (!pack)
+      {
+        Warn(fmt::format("{}: not a readable WAD3 file", s.rel));
+        continue;
+      }
+      baked = *pack;
+    }
+
+    std::vector<std::string> outputs;
+    if (!baked.empty())
+    {
+      if (!Commit(out_rel, baked, live, &updated))
+      {
+        carry(key);
+        continue;
+      }
+      outputs.push_back(out_rel);
+    }
+    converted++;
+    if (it != state.end())
+      RemoveOutputs(it->second.outputs, {outputs.begin(), outputs.end()});
+    next[key] = {s.Fingerprint(), outputs};
+  }
+
   // --- Everything else, through the Python tool, one call per folder --------------------------
   std::map<std::string, std::vector<const Source*>> groups;
   std::map<std::string, std::string> folder_fp;
@@ -844,7 +911,12 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
       continue;
     }
     if (it != state.end())
+    {
+      // Files this folder used to get from the Python tool may now be baked natively.
+      for (const auto& [other_key, other] : next)
+        keep.insert(other.outputs.begin(), other.outputs.end());
       RemoveOutputs(it->second.outputs, keep);
+    }
     next[key] = u;
     add_entries(u);
   }
@@ -883,7 +955,10 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
     next[key] = {fp, {out_rel}};
   }
 
-  // Outputs of sources that are gone.
+  // Outputs of sources that are gone, unless something else produces the same file now.
+  std::set<std::string> claimed;
+  for (const auto& [key, u] : next)
+    claimed.insert(u.outputs.begin(), u.outputs.end());
   for (const auto& [key, u] : state)
   {
     if (next.contains(key))
@@ -901,7 +976,7 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
       else
         plain.push_back(o);
     }
-    RemoveOutputs(plain, {});
+    RemoveOutputs(plain, claimed);
   }
   state = std::move(next);
   SaveState();
@@ -917,8 +992,11 @@ std::vector<std::string> AssetBaker::Impl::Run(bool live, std::vector<BakedFile>
     std::map<std::string, std::string> disc;
     for (const Source& s : sources)
     {
-      if (s.kind == Kind::Passthrough || s.kind == Kind::PythonAndPassthrough)
+      if (s.kind == Kind::Passthrough || s.kind == Kind::PythonAndPassthrough ||
+          s.kind == Kind::NativeGoldSrc)
+      {
         disc[s.rel] = s.host;
+      }
     }
     for (const auto& [key, u] : state)
     {

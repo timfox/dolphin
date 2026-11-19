@@ -535,6 +535,7 @@
     <ClInclude Include="GxBake\Cmpr.h" />
     <ClInclude Include="GxBake\Config.h" />
     <ClInclude Include="GxBake\Encode.h" />
+    <ClInclude Include="GxBake\GoldSrc.h" />
     <ClInclude Include="GxBake\Md5.h" />
     <ClInclude Include="GxBake\Process.h" />
     <ClInclude Include="GxBake\Resample.h" />
@@ -1250,6 +1251,7 @@
     <ClCompile Include="GxBake\Cmpr.cpp" />
     <ClCompile Include="GxBake\Config.cpp" />
     <ClCompile Include="GxBake\Encode.cpp" />
+    <ClCompile Include="GxBake\GoldSrc.cpp" />
     <ClCompile Include="GxBake\Md5.cpp" />
     <ClCompile Include="GxBake\Process.cpp" />
     <ClCompile Include="GxBake\Resample.cpp" />

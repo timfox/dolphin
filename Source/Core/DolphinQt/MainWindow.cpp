@@ -97,6 +97,7 @@
 #include "DolphinQt/Debugger/MemoryAnalyzer.h"
 #include "DolphinQt/Debugger/MemoryMapWidget.h"
 #include "DolphinQt/Debugger/MemoryUsageWidget.h"
+#include "DolphinQt/Debugger/XashMemoryWidget.h"
 #include "DolphinQt/Debugger/MemoryWidget.h"
 #include "DolphinQt/Debugger/NetworkWidget.h"
 #include "DolphinQt/Debugger/RegisterWidget.h"
@@ -507,6 +508,7 @@ void MainWindow::CreateComponents()
   m_memory_analyzer = new MemoryAnalyzer(this);
   m_memory_map_widget = new MemoryMapWidget(m_memory_analyzer, this);
   m_memory_usage_widget = new MemoryUsageWidget(m_memory_analyzer, this);
+  m_xash_memory_widget = new XashMemoryWidget(m_memory_analyzer, this);
   m_network_widget = new NetworkWidget(this);
   m_register_widget = new RegisterWidget(this);
   m_thread_widget = new ThreadWidget(this);
@@ -562,6 +564,7 @@ void MainWindow::CreateComponents()
   };
   connect(m_memory_map_widget, &MemoryMapWidget::ShowMemory, this, show_in_memory_viewer);
   connect(m_memory_usage_widget, &MemoryUsageWidget::ShowMemory, this, show_in_memory_viewer);
+  connect(m_xash_memory_widget, &XashMemoryWidget::ShowMemory, this, show_in_memory_viewer);
   connect(m_memory_map_widget, &MemoryMapWidget::RequestRangedBreakpoint, this,
           [this](u32 from, u32 to) {
             ShowDebugPanel(m_breakpoint_widget, &Settings::SetBreakpointsVisible);
@@ -598,6 +601,7 @@ void MainWindow::CreateDevkitPanels()
       {m_memory_widget, "memory"},
       {m_memory_map_widget, "map"},
       {m_memory_usage_widget, "chart-area"},
+      {m_xash_memory_widget, "boxes-stacked"},
       {m_code_widget, "code"},
       {m_register_widget, "microchip"},
       {m_watch_widget, "eye"},
@@ -630,6 +634,13 @@ void MainWindow::CreateDevkitPanels()
                  tr("Memory use over time, thread stack depth and heap allocations."), [this] {
                    m_memory_usage_widget->show();
                    m_memory_usage_widget->raise();
+                 });
+  tools->AddTool("boxes-stacked", tr("Xash3D Memory"),
+                 tr("Xash3D engine memory: zone pools, allocations by source line, ARAM blocks "
+                    "and the asset cache, and memory per map."),
+                 [this] {
+                   m_xash_memory_widget->show();
+                   m_xash_memory_widget->raise();
                  });
   tools->AddTool("code", tr("Code / Symbol Map"), tr("Disassembly, symbols and call stack."),
                  [this] { ShowDebugPanel(m_code_widget, &Settings::SetCodeVisible); });
@@ -1341,6 +1352,7 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     addDockWidget(Qt::RightDockWidgetArea, m_property_inspector_widget);
     addDockWidget(Qt::LeftDockWidgetArea, m_project_widget);
     addDockWidget(Qt::LeftDockWidgetArea, m_memory_map_widget);
+    addDockWidget(Qt::LeftDockWidgetArea, m_xash_memory_widget);
     for (QDockWidget* dock : {static_cast<QDockWidget*>(m_build_output_widget),
                               static_cast<QDockWidget*>(m_warnings_widget),
                               static_cast<QDockWidget*>(m_errors_widget),
@@ -1370,6 +1382,7 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     removeDockWidget(m_warnings_widget);
     removeDockWidget(m_errors_widget);
     removeDockWidget(m_memory_map_widget);
+    removeDockWidget(m_xash_memory_widget);
     removeDockWidget(m_memory_usage_widget);
     removeDockWidget(m_render_profiler_widget);
     removeDockWidget(m_frame_capture_widget);
@@ -1404,8 +1417,9 @@ void MainWindow::ResetEditorLayout()
   // Arrangement modelled on the devkit concept: library on the left, the game view in the middle
   // tabbed with the big inspection tools, Target Tools and the Property Inspector on the right,
   // and the console (log) tabbed with the CPU state panels along the bottom.
-  QDockWidget* const center_tabs[] = {m_memory_map_widget, m_memory_widget, m_code_widget,
-                                      m_jit_widget,        m_assembler_widget,
+  QDockWidget* const center_tabs[] = {m_memory_map_widget,  m_xash_memory_widget,
+                                      m_memory_widget,      m_code_widget,
+                                      m_jit_widget,         m_assembler_widget,
                                       m_frame_capture_widget};
   // Tall panels (threads, network, log config) go in the full-height right column so the default
   // layout fits on a 1080p screen.
@@ -1431,6 +1445,7 @@ void MainWindow::ResetEditorLayout()
         static_cast<QDockWidget*>(m_warnings_widget),
         static_cast<QDockWidget*>(m_errors_widget),
         static_cast<QDockWidget*>(m_memory_map_widget),
+        static_cast<QDockWidget*>(m_xash_memory_widget),
         static_cast<QDockWidget*>(m_memory_usage_widget),
         static_cast<QDockWidget*>(m_render_profiler_widget),
         static_cast<QDockWidget*>(m_frame_capture_widget)})
@@ -1461,6 +1476,7 @@ void MainWindow::ResetEditorLayout()
                             static_cast<QDockWidget*>(m_warnings_widget),
                             static_cast<QDockWidget*>(m_errors_widget),
                             static_cast<QDockWidget*>(m_memory_map_widget),
+                            static_cast<QDockWidget*>(m_xash_memory_widget),
                             static_cast<QDockWidget*>(m_memory_usage_widget),
                             static_cast<QDockWidget*>(m_render_profiler_widget),
                             static_cast<QDockWidget*>(m_frame_capture_widget)})
@@ -1557,6 +1573,11 @@ void MainWindow::RestoreLayoutState()
       if (!restoreDockWidget(m_memory_map_widget))
       {
         tabifyDockWidget(m_game_view_widget, m_memory_map_widget);
+        m_game_view_widget->raise();
+      }
+      if (!restoreDockWidget(m_xash_memory_widget))
+      {
+        tabifyDockWidget(m_game_view_widget, m_xash_memory_widget);
         m_game_view_widget->raise();
       }
       if (!restoreDockWidget(m_render_profiler_widget))
@@ -2008,7 +2029,10 @@ void MainWindow::StartGame(std::unique_ptr<BootParameters>&& parameters)
 
   // The memory tools need to know where the program's sections are.
   if (parameters)
+  {
+    m_memory_analyzer->SetBootPath(MemoryAnalyzer::GetBootPath(*parameters), {});
     m_memory_analyzer->SetExecutableLayout(MemoryAnalyzer::ReadExecutableLayout(*parameters));
+  }
 
   // We need the render widget before booting.
   ShowRenderWidget();

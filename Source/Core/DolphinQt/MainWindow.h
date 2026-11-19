@@ -168,8 +168,6 @@ private:
   void SetEditorLayoutEnabled(bool enabled);
   void ResetEditorLayout();
   void CreateDevkitPanels();
-  // Docks the memory panels in an editor layout saved before they existed.
-  void PlaceNewEditorPanels();
   void CreateProjectMenu();
   void UpdateProjectActions();
   void UpdateRecentProjectsMenu();

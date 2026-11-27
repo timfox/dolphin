@@ -1692,9 +1692,31 @@ void MainWindow::RestoreLayoutState()
         m_game_view_widget->raise();
       }
     }
+    // The game view always starts docked in the main window. A saved state from a session where
+    // it was floated out (or one saved before it existed) would otherwise make the game render in
+    // a separate top-level window on the next launch.
+    if (m_game_view_widget->isFloating() ||
+        dockWidgetArea(m_game_view_widget) == Qt::NoDockWidgetArea)
+    {
+      // Put it back at the front of the center tab group (Memory Map, Frame Capture, ...) when
+      // that group is still docked; otherwise fall back to the default editor arrangement.
+      m_game_view_widget->setFloating(false);
+      if (dockWidgetArea(m_memory_map_widget) != Qt::NoDockWidgetArea &&
+          !m_memory_map_widget->isFloating())
+      {
+        tabifyDockWidget(m_memory_map_widget, m_game_view_widget);
+      }
+      else
+      {
+        ResetEditorLayout();
+      }
+      m_keep_default_dock_sizes = true;
+      QueueDefaultDockSizes();
+    }
     // A saved state can't bring back the game view/library if they were somehow lost.
     m_game_library_dock->show();
     m_game_view_widget->show();
+    m_game_view_widget->raise();
   }
   else
   {

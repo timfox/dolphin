@@ -114,6 +114,7 @@
 #include "DolphinQt/DevkitBuildPanels.h"
 #include "DolphinQt/DevkitPanels.h"
 #include "DolphinQt/DevkitRenderProfiler.h"
+#include "DolphinQt/DevkitDataTables.h"
 #include "DolphinQt/DevkitGXState.h"
 #include "DolphinQt/DevkitPackager.h"
 #include "DolphinQt/DevkitProject.h"
@@ -130,6 +131,7 @@
 #include "DolphinQt/QtUtils/DolphinFileDialog.h"
 #include "DolphinQt/QtUtils/FileOpenEventFilter.h"
 #include "DolphinQt/QtUtils/ModalMessageBox.h"
+#include "DolphinQt/QtUtils/TableExport.h"
 #include "DolphinQt/QtUtils/ParallelProgressDialog.h"
 #include "DolphinQt/QtUtils/QueueOnObject.h"
 #include "DolphinQt/QtUtils/RunOnObject.h"
@@ -497,6 +499,7 @@ void MainWindow::CreateComponents()
   m_render_profiler_widget = new RenderProfilerWidget(this);
   m_frame_capture_widget = new FrameCaptureWidget(this);
   m_gx_state_widget = new GXStateWidget(this);
+  m_data_tables_widget = new DataTablesWidget(m_project, this);
 
   for (int i = 0; i < 4; i++)
   {
@@ -603,6 +606,7 @@ void MainWindow::CreateDevkitPanels()
       {m_render_profiler_widget, "chart-line"},
       {m_frame_capture_widget, "crosshairs"},
       {m_gx_state_widget, "palette"},
+      {m_data_tables_widget, "table-cells"},
       {m_memory_widget, "memory"},
       {m_memory_map_widget, "map"},
       {m_memory_usage_widget, "chart-area"},
@@ -676,6 +680,12 @@ void MainWindow::CreateDevkitPanels()
                    m_gx_state_widget->raise();
                    m_gx_state_widget->Refresh();
                  });
+  tools->AddTool("table-cells", tr("Data Tables"),
+                 tr("Spreadsheets for game data (CSV/TSV) with formulas, baked to C headers."),
+                 [this] {
+                   m_data_tables_widget->show();
+                   m_data_tables_widget->raise();
+                 });
   tools->AddTool("cubes", tr("GX / FIFO Player"),
                  tr("Record and replay graphics FIFO logs to inspect GX command streams."),
                  [this] { ShowFIFOPlayer(); });
@@ -726,7 +736,21 @@ void MainWindow::CreateDevkitPanels()
   const auto open_in_editor = [this](const QString& path, int line) {
     m_project->OpenInEditor(path, line);
   };
-  connect(m_project_widget, &ProjectWidget::OpenFileRequested, this, open_in_editor);
+  connect(m_project_widget, &ProjectWidget::OpenFileRequested, this,
+          [this, open_in_editor](const QString& path, int line) {
+            // Data tables open in the Data Tables panel; "Open in Editor" from the context menu
+            // still reaches the text editor through OpenInEditorRequested.
+            if (DataTablesWidget::IsDataTableFile(path))
+              m_data_tables_widget->OpenFile(path);
+            else
+              open_in_editor(path, line);
+          });
+  connect(m_project_widget, &ProjectWidget::OpenInEditorRequested, this, open_in_editor);
+  connect(m_project_widget, &ProjectWidget::NewDataTableRequested, m_data_tables_widget,
+          &DataTablesWidget::NewTable);
+  TableExport::SetOpenHandler([this](const QString& name, const QList<QStringList>& rows) {
+    m_data_tables_widget->OpenRows(name, rows);
+  });
   connect(m_warnings_widget, &DiagnosticsWidget::OpenFileRequested, this, open_in_editor);
   connect(m_errors_widget, &DiagnosticsWidget::OpenFileRequested, this, open_in_editor);
   connect(&Settings::Instance(), &Settings::EmulationStateChanged, this,
@@ -827,6 +851,11 @@ void MainWindow::CreateProjectMenu()
         ShowProjectOutput();
         m_packager->PackGcm();
       });
+  m_project_menu->addSeparator();
+  m_project_menu->addAction(IconSet::Get("table-cells"), tr("New Data &Table"), m_data_tables_widget,
+                            &DataTablesWidget::NewTable);
+  m_project_menu->addAction(IconSet::Get("table-cells"), tr("Open Data Table..."),
+                            m_data_tables_widget, &DataTablesWidget::OpenTable);
   m_project_menu->addSeparator();
   m_project_settings_action = m_project_menu->addAction(
       IconSet::Get("gear"), tr("Project &Window..."), this, &MainWindow::ShowProjectSettings);
@@ -1447,7 +1476,8 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
                               static_cast<QDockWidget*>(m_memory_usage_widget),
                               static_cast<QDockWidget*>(m_render_profiler_widget),
                               static_cast<QDockWidget*>(m_frame_capture_widget),
-                              static_cast<QDockWidget*>(m_gx_state_widget)})
+                              static_cast<QDockWidget*>(m_gx_state_widget),
+        static_cast<QDockWidget*>(m_data_tables_widget)})
     {
       addDockWidget(Qt::BottomDockWidgetArea, dock);
     }
@@ -1476,6 +1506,7 @@ void MainWindow::ApplyLayoutMode(bool editor_layout)
     removeDockWidget(m_render_profiler_widget);
     removeDockWidget(m_frame_capture_widget);
     removeDockWidget(m_gx_state_widget);
+    removeDockWidget(m_data_tables_widget);
     m_devkit_status_bar->hide();
     m_log_widget->setWindowTitle(tr("Log"));
     m_game_library_dock->setWidget(nullptr);
@@ -1510,7 +1541,7 @@ void MainWindow::ResetEditorLayout()
   QDockWidget* const center_tabs[] = {m_memory_map_widget,  m_xash_memory_widget,
                                       m_memory_widget,      m_code_widget,
                                       m_jit_widget,         m_assembler_widget,
-                                      m_frame_capture_widget};
+                                      m_frame_capture_widget, m_data_tables_widget};
   // Tall panels (threads, network, log config) go in the full-height right column so the default
   // layout fits on a 1080p screen.
   QDockWidget* const inspector_tabs[] = {m_property_inspector_widget, m_thread_widget,
@@ -1539,7 +1570,8 @@ void MainWindow::ResetEditorLayout()
         static_cast<QDockWidget*>(m_memory_usage_widget),
         static_cast<QDockWidget*>(m_render_profiler_widget),
         static_cast<QDockWidget*>(m_frame_capture_widget),
-        static_cast<QDockWidget*>(m_gx_state_widget)})
+        static_cast<QDockWidget*>(m_gx_state_widget),
+        static_cast<QDockWidget*>(m_data_tables_widget)})
   {
     dock->setFloating(false);
   }
@@ -1571,7 +1603,8 @@ void MainWindow::ResetEditorLayout()
                             static_cast<QDockWidget*>(m_memory_usage_widget),
                             static_cast<QDockWidget*>(m_render_profiler_widget),
                             static_cast<QDockWidget*>(m_frame_capture_widget),
-        static_cast<QDockWidget*>(m_gx_state_widget)})
+        static_cast<QDockWidget*>(m_gx_state_widget),
+        static_cast<QDockWidget*>(m_data_tables_widget)})
   {
     dock->show();
   }
@@ -1689,6 +1722,11 @@ void MainWindow::RestoreLayoutState()
       if (!restoreDockWidget(m_gx_state_widget))
       {
         tabifyDockWidget(m_game_view_widget, m_gx_state_widget);
+        m_game_view_widget->raise();
+      }
+      if (!restoreDockWidget(m_data_tables_widget))
+      {
+        tabifyDockWidget(m_game_view_widget, m_data_tables_widget);
         m_game_view_widget->raise();
       }
     }
@@ -2750,6 +2788,11 @@ bool MainWindow::eventFilter(QObject* object, QEvent* event)
 
   if (event->type() == QEvent::Close)
   {
+    if (object == this && m_data_tables_widget && !m_data_tables_widget->ConfirmClose())
+    {
+      static_cast<QCloseEvent*>(event)->ignore();
+      return true;
+    }
     if (RequestStop() && object == this)
       m_exit_requested = true;
 

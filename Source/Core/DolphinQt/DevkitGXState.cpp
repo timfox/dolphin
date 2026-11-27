@@ -23,6 +23,7 @@
 #include "Core/System.h"
 #include "DolphinQt/IconSet.h"
 #include "DolphinQt/Settings.h"
+#include "DolphinQt/QtUtils/TableExport.h"
 #include "VideoCommon/BPMemory.h"
 #include "VideoCommon/TextureDecoder.h"
 
@@ -82,6 +83,7 @@ GXStateWidget::GXStateWidget(QWidget* parent) : QDockWidget(parent)
   m_tree->setHeaderLabels({tr("State"), tr("Value")});
   m_tree->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
   m_tree->setUniformRowHeights(true);
+  TableExport::Install(m_tree);
   m_tree->setAlternatingRowColors(true);
 
   auto* const bar = new QHBoxLayout;

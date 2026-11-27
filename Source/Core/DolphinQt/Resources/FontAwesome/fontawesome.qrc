@@ -18,6 +18,7 @@
 		<file>clock-rotate-left.svg</file>
 		<file>code.svg</file>
 		<file>compact-disc.svg</file>
+		<file>copy.svg</file>
 		<file>crosshairs.svg</file>
 		<file>cube.svg</file>
 		<file>cubes.svg</file>
@@ -27,6 +28,7 @@
 		<file>file-audio.svg</file>
 		<file>file-circle-plus.svg</file>
 		<file>file-code.svg</file>
+		<file>file-csv.svg</file>
 		<file>file-export.svg</file>
 		<file>file-image.svg</file>
 		<file>file-lines.svg</file>
@@ -52,16 +54,21 @@
 		<file>map.svg</file>
 		<file>memory.svg</file>
 		<file>microchip.svg</file>
+		<file>minus.svg</file>
 		<file>network-wired.svg</file>
 		<file>palette.svg</file>
+		<file>paste.svg</file>
 		<file>pause.svg</file>
 		<file>play.svg</file>
+		<file>plus.svg</file>
 		<file>rotate-left.svg</file>
 		<file>rotate-right.svg</file>
 		<file>screwdriver-wrench.svg</file>
 		<file>share.svg</file>
 		<file>sliders.svg</file>
 		<file>stop.svg</file>
+		<file>table-cells.svg</file>
+		<file>table-columns.svg</file>
 		<file>table-list.svg</file>
 		<file>terminal.svg</file>
 		<file>trash-can.svg</file>

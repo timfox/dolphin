@@ -32,6 +32,7 @@
 #include <QVBoxLayout>
 
 #include "DolphinQt/IconSet.h"
+#include "DolphinQt/QtUtils/TableExport.h"
 
 namespace
 {
@@ -269,8 +270,15 @@ void ProjectWidget::ShowContextMenu(const QPoint& pos)
   }
   if (info.isFile())
   {
+    const QString suffix = info.suffix().toLower();
+    if (suffix == QStringLiteral("csv") || suffix == QStringLiteral("tsv") ||
+        suffix == QStringLiteral("tab"))
+    {
+      menu.addAction(IconSet::Get("table-cells"), tr("Open in Data Tables"), this,
+                     [this, info] { emit OpenFileRequested(info.absoluteFilePath(), 0); });
+    }
     menu.addAction(IconSet::Get("file-code"), tr("Open in Editor"), this,
-                   [this, info] { emit OpenFileRequested(info.absoluteFilePath(), 0); });
+                   [this, info] { emit OpenInEditorRequested(info.absoluteFilePath(), 0); });
     menu.addAction(IconSet::Get("file-lines"), tr("Open with Default App"), this, [info] {
       QDesktopServices::openUrl(QUrl::fromLocalFile(info.absoluteFilePath()));
     });
@@ -279,6 +287,8 @@ void ProjectWidget::ShowContextMenu(const QPoint& pos)
   menu.addAction(IconSet::Get("folder-open"), tr("Show in File Manager"), this,
                  [folder] { QDesktopServices::openUrl(QUrl::fromLocalFile(folder)); });
   menu.addSeparator();
+  menu.addAction(IconSet::Get("table-cells"), tr("New Data Table"), this,
+                 &ProjectWidget::NewDataTableRequested);
   menu.addAction(IconSet::Get("gear"), tr("Project Settings..."), this,
                  &ProjectWidget::SettingsRequested);
   menu.exec(m_tree->viewport()->mapToGlobal(pos));
@@ -358,6 +368,7 @@ DiagnosticsWidget::DiagnosticsWidget(BuildDiagnostic::Severity severity, QWidget
   m_list->header()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
   m_list->header()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
   m_list->header()->setStretchLastSection(true);
+  TableExport::Install(m_list);
   connect(m_list, &QTreeWidget::itemActivated, this, [this](QTreeWidgetItem* item) {
     const QString path = item->data(0, Qt::UserRole).toString();
     if (QFileInfo::exists(path))

@@ -33,6 +33,7 @@
 #include "DolphinQt/QtUtils/DolphinFileDialog.h"
 #include "DolphinQt/QtUtils/FromStdString.h"
 #include "DolphinQt/Settings.h"
+#include "DolphinQt/QtUtils/TableExport.h"
 #include "VideoCommon/PerformanceMetrics.h"
 #include "VideoCommon/RenderState.h"
 #include "VideoCommon/TextureDecoder.h"
@@ -528,6 +529,7 @@ RenderProfilerWidget::RenderProfilerWidget(QWidget* parent) : QDockWidget(parent
   for (int col = 1; col < 4; ++col)
     m_table->horizontalHeader()->setSectionResizeMode(col, QHeaderView::ResizeToContents);
   m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+  TableExport::Install(m_table);
   m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
   m_table->setAlternatingRowColors(true);
   m_table->setShowGrid(false);
@@ -857,6 +859,7 @@ FrameCaptureWidget::FrameCaptureWidget(QWidget* parent) : QDockWidget(parent)
   m_details = new QTableWidget(0, 2);
   m_details->setHorizontalHeaderLabels({tr("Property"), tr("Value")});
   m_details->verticalHeader()->hide();
+  TableExport::Install(m_details);
   m_details->verticalHeader()->setDefaultSectionSize(m_details->fontMetrics().height() + 6);
   m_details->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
   m_details->horizontalHeader()->setStretchLastSection(true);
@@ -1100,8 +1103,6 @@ void FrameCaptureWidget::ShowContextMenu(const QPoint& pos)
 {
   QTreeWidgetItem* const item = m_tree->itemAt(pos);
   const auto addresses = AddressesFor(item);
-  if (addresses.empty())
-    return;
 
   QMenu menu(this);
   for (const auto& [label, address] : addresses)
@@ -1112,6 +1113,7 @@ void FrameCaptureWidget::ShowContextMenu(const QPoint& pos)
                        .arg(address, 8, 16, QLatin1Char('0')),
                    this, [this, address] { emit ShowMemoryRequested(address); });
   }
+  TableExport::AddActions(&menu, m_tree);
   menu.exec(m_tree->viewport()->mapToGlobal(pos));
 }
 

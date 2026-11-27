@@ -85,6 +85,12 @@ public:
   // Falls back to the system's default app for the file.
   void OpenInEditor(const QString& path, int line) const;
 
+  // The C header a data table (CSV/TSV) is baked to whenever it's saved, as an absolute path.
+  // Empty if the table isn't baked. Both are stored relative to the project.
+  QString GetDataTableHeader(const QString& table_path) const;
+  // An empty |header_path| stops baking the table.
+  void SetDataTableHeader(const QString& table_path, const QString& header_path);
+
   // The run target as an absolute path: the configured one, or else the most recently modified
   // .dol/.elf in the project. Empty if nothing has been built yet.
   QString ResolveRunTarget() const;

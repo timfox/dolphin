@@ -7,6 +7,8 @@ add_library(gxbake
   Cmpr.h
   Config.cpp
   Config.h
+  DataTable.cpp
+  DataTable.h
   Encode.cpp
   Encode.h
   GoldSrc.cpp

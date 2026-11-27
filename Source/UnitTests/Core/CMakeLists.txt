@@ -16,6 +16,7 @@ add_dolphin_test(ESFormatsTest IOS/ES/FormatsTest.cpp)
 
 add_dolphin_test(ElfToDolTest ElfToDolTest.cpp)
 add_dolphin_test(GxBakeTest GxBakeTest.cpp)
+add_dolphin_test(DataTableTest DataTableTest.cpp)
 
 add_dolphin_test(FileSystemTest IOS/FS/FileSystemTest.cpp)
 

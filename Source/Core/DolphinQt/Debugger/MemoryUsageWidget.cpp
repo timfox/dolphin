@@ -23,6 +23,7 @@
 #include <QVBoxLayout>
 
 #include "DolphinQt/IconSet.h"
+#include "DolphinQt/QtUtils/TableExport.h"
 #include "UICommon/UICommon.h"
 
 namespace
@@ -83,6 +84,7 @@ QTableWidget* CreateTable(const QStringList& headers)
   table->setWordWrap(false);
   table->setAlternatingRowColors(true);
   table->setShowGrid(false);
+  TableExport::Install(table);
   return table;
 }
 

@@ -36,6 +36,9 @@ signals:
   void BootRequested(const QString& path);
   // A non-bootable file was activated in the tree. |line| is 0 when there's no line to jump to.
   void OpenFileRequested(const QString& path, int line);
+  // "Open in Editor" from the context menu: always the text editor, even for data tables.
+  void OpenInEditorRequested(const QString& path, int line);
+  void NewDataTableRequested();
   // The selected file or folder in the tree changed. Empty when nothing is selected.
   void FileSelected(const QString& path);
 

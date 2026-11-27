@@ -22,6 +22,7 @@
 #include <QVBoxLayout>
 
 #include "DolphinQt/IconSet.h"
+#include "DolphinQt/QtUtils/TableExport.h"
 #include "UICommon/UICommon.h"
 
 namespace
@@ -624,14 +625,18 @@ void MemoryMapWidget::ShowContextMenu(const QPoint& pos)
 {
   const int row = m_table->rowAt(pos.y());
   const MemoryRegion* const region = RegionForRow(row);
+  QMenu menu(this);
   if (!region)
+  {
+    TableExport::AddActions(&menu, m_table);
+    menu.exec(m_table->viewport()->mapToGlobal(pos));
     return;
+  }
 
   const bool aram = CurrentSpace() == MemorySpace::ARAM;
   const u32 start = region->start;
   const u32 end = region->end;
 
-  QMenu menu(this);
   menu.addAction(IconSet::Get("memory"), tr("Show in Memory Viewer"), this,
                  [this, start, aram] { emit ShowMemory(start, aram); });
   menu.addAction(IconSet::Get("location-dot"), tr("Show End in Memory Viewer"), this,
@@ -648,5 +653,6 @@ void MemoryMapWidget::ShowContextMenu(const QPoint& pos)
     menu.addAction(IconSet::Get("circle-dot"), tr("Break on Access to This Region"), this,
                    [this, start, end] { emit RequestRangedBreakpoint(start, end - 1); });
   }
+  TableExport::AddActions(&menu, m_table);
   menu.exec(m_table->viewport()->mapToGlobal(pos));
 }

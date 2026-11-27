@@ -166,6 +166,8 @@ const std::vector<DevkitProject::FolderRule>& DevkitProject::GetFolderRules()
       {"source", "source", tr("Source"), tr("C/C++ and assembly sources")},
       {"include", "include", tr("Include"), tr("Headers")},
       {"data", "data", tr("Data"), tr("Binary files linked into the executable")},
+      {"tables", "tables", tr("Data Tables"),
+       tr("CSV/TSV spreadsheets edited in the Data Tables panel and baked to C headers")},
       {"assets", "assets", tr("Assets"),
        tr("GxBake sources, converted to GameCube formats when the game boots")},
       {"disc", "game", tr("Disc"),
@@ -356,6 +358,40 @@ bool DevkitProject::CreateFromTemplate(const QString& path, QString* error)
   // The template's Makefile writes the ELF and DOL next to it.
   SetFolder("output", QStringLiteral("."));
   return true;
+}
+
+QString DevkitProject::GetDataTableHeader(const QString& table_path) const
+{
+  if (!IsOpen())
+    return {};
+  const QDir root(m_path);
+  const QString table = root.relativeFilePath(table_path);
+  QSettings settings(root.filePath(QString::fromLatin1(SETTINGS_FILE_NAME)), QSettings::IniFormat);
+  for (const QString& entry :
+       settings.value(QStringLiteral("datatables/headers")).toStringList())
+  {
+    const qsizetype separator = entry.indexOf(QLatin1Char('>'));
+    if (separator > 0 && QDir::cleanPath(entry.left(separator)) == QDir::cleanPath(table))
+      return QDir::cleanPath(root.filePath(entry.mid(separator + 1)));
+  }
+  return {};
+}
+
+void DevkitProject::SetDataTableHeader(const QString& table_path, const QString& header_path)
+{
+  if (!IsOpen())
+    return;
+  const QDir root(m_path);
+  const QString table = QDir::cleanPath(root.relativeFilePath(table_path));
+  QSettings settings(root.filePath(QString::fromLatin1(SETTINGS_FILE_NAME)), QSettings::IniFormat);
+  QStringList entries = settings.value(QStringLiteral("datatables/headers")).toStringList();
+  entries.removeIf([&](const QString& entry) {
+    const qsizetype separator = entry.indexOf(QLatin1Char('>'));
+    return separator <= 0 || QDir::cleanPath(entry.left(separator)) == table;
+  });
+  if (!header_path.isEmpty())
+    entries.push_back(table + QLatin1Char('>') + QDir::cleanPath(root.relativeFilePath(header_path)));
+  settings.setValue(QStringLiteral("datatables/headers"), entries);
 }
 
 QString DevkitProject::ReadSetting(const QString& key, const QString& fallback) const

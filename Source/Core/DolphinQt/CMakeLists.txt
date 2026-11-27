@@ -369,6 +369,8 @@ add_executable(dolphin-emu
   QtUtils/UTF8CodePointCountValidator.h
   QtUtils/WindowActivationEventFilter.cpp
   QtUtils/WindowActivationEventFilter.h
+  QtUtils/TableExport.cpp
+  QtUtils/TableExport.h
   QtUtils/WrapInScrollArea.cpp
   QtUtils/WrapInScrollArea.h
   RenderWidget.cpp
@@ -387,6 +389,8 @@ add_executable(dolphin-emu
   GameViewWidget.h
   IconSet.cpp
   IconSet.h
+  DevkitDataTables.cpp
+  DevkitDataTables.h
   DevkitGXState.cpp
   DevkitGXState.h
   DevkitPackager.cpp
@@ -496,6 +500,7 @@ PRIVATE
 target_link_libraries(dolphin-emu
 PRIVATE
   core
+  gxbake
   Qt6::Widgets
   Qt6::Svg
   uicommon

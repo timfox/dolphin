@@ -29,6 +29,7 @@
 #include "DolphinQt/Host.h"
 #include "DolphinQt/IconSet.h"
 #include "DolphinQt/Settings.h"
+#include "DolphinQt/QtUtils/TableExport.h"
 #include "UICommon/GameFile.h"
 #include "UICommon/UICommon.h"
 
@@ -229,6 +230,7 @@ PropertyInspectorWidget::PropertyInspectorWidget(QWidget* parent) : QDockWidget(
 
   m_table = new QTableWidget(0, 2);
   m_table->setHorizontalHeaderLabels({tr("Property"), tr("Value")});
+  TableExport::Install(m_table);
   m_table->verticalHeader()->hide();
   m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
   m_table->horizontalHeader()->setStretchLastSection(true);
